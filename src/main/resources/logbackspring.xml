@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="30 seconds">
+
+    <!-- Define the root logger -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- Encoder for formatting the log messages -->
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- File appender for logging to a file -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- Specify the log file location -->
+        <file>logs/payup.log</file>
+        <!-- Roll over the log file daily -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- Log file name pattern -->
+            <fileNamePattern>logs/payup.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <!-- Keep logs for up to 30 days -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <!-- Encoder for formatting the log messages -->
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Logger for Spring Boot -->
+    <logger name="org.springframework" level="INFO" />
+
+    <!-- Logger for Hibernate SQL statements -->
+    <logger name="org.hibernate.SQL" level="DEBUG" />
+
+    <!-- Logger for Hibernate parameter binding -->
+    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE" />
+
+    <!-- Logger for your application package -->
+    <logger name="com.payup" level="INFO" />
+
+    <!-- Root logger configuration -->
+    <root level="INFO">
+        <!-- Append logs to both console and file -->
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="FILE" />
+    </root>
+
+    <!-- Specific loggers can override the root logger -->
+    <logger name="com.payup.controller" level="DEBUG" />
+    <logger name="com.payup.service" level="DEBUG" />
+
+    <!-- Log SQL statements for debugging -->
+    <logger name="org.springframework.jdbc.core" level="DEBUG" />
+    
+    <!-- Disable logging for annoying libraries or noise -->
+    <logger name="org.springframework.web.filter.CommonsRequestLoggingFilter" level="OFF" />
+    
+    <!-- Custom log levels for specific packages if needed -->
+    <!--
+    <logger name="com.payup.security" level="TRACE" />
+    -->
+
+</configuration>
