@@ -1,20 +1,29 @@
 package payup.payup.jwt;
 
-import javax.servlet.FilterChain;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
+import io.jsonwebtoken.UnsupportedJwtException;
+import io.jsonwebtoken.security.SignatureException;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import payup.payup.service.UserService;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+import org.springframework.lang.NonNull;
 
 @Component
 public class JwtRequestFilter extends OncePerRequestFilter {
@@ -25,61 +34,56 @@ public class JwtRequestFilter extends OncePerRequestFilter {
     @Autowired
     private UserService userService;
 
-    // Allowed algorithms, this can be expanded if needed
     private static final List<String> ALLOWED_ALGORITHMS = Arrays.asList("HS512");
 
-    /**
-     * This method intercepts HTTP requests to validate JWT tokens.
-     * 
-     * @param request The HTTP request to process
-     * @param response The HTTP response to send back
-     * @param chain The filter chain for the request
-     * @throws ServletException if an error occurs during filtering
-     * @throws IOException if an I/O error occurs
-     */
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain chain)
             throws ServletException, IOException {
 
         final String authHeader = request.getHeader("Authorization");
         String username = null;
         String jwtToken = null;
 
-        // Check if the Authorization header is present and starts with "Bearer "
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             jwtToken = authHeader.substring(7);
             try {
-                // Validate the signing algorithm used in the token
-                String alg = Jwts.parser().setSigningKey(jwtTokenUtil.getSecretKey())
-                        .parseClaimsJws(jwtToken).getHeader().getAlgorithm();
+                String alg = Jwts.parserBuilder()
+                        .setSigningKey(jwtTokenUtil.getSigningKey())
+                        .build()
+                        .parseClaimsJws(jwtToken)
+                        .getHeader()
+                        .getAlgorithm();
+
                 if (!ALLOWED_ALGORITHMS.contains(alg)) {
                     throw new IllegalArgumentException("Invalid signing algorithm");
                 }
 
                 username = jwtTokenUtil.getUsernameFromToken(jwtToken);
-            } catch (IllegalArgumentException | ExpiredJwtException | MalformedJwtException | UnsupportedJwtException | SignatureException e) {
+            } catch (IllegalArgumentException | ExpiredJwtException | MalformedJwtException |
+                     UnsupportedJwtException | SignatureException e) {
                 logger.warn("JWT validation failed: " + e.getMessage());
-                // Optionally, you might want to send an error response here
             }
         } else {
             logger.debug("JWT Token does not begin with Bearer String");
         }
 
-        // If a username was extracted from the token and there's no current authentication
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             UserDetails userDetails = this.userService.loadUserByUsername(username);
-
-            // Validate the token's details against the user's details
             if (jwtTokenUtil.validateToken(jwtToken, userDetails)) {
-                // If token is valid, create a Spring Security authentication
+                // Extract roles from token instead of relying solely on UserDetails
+                List<String> roles = jwtTokenUtil.getRolesFromToken(jwtToken);
+                List<SimpleGrantedAuthority> authorities = roles.stream()
+                        .map(SimpleGrantedAuthority::new)
+                        .collect(Collectors.toList());
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities());
+                        userDetails, null, authorities
+                );
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                logger.info("Authenticated user: " + username + " with roles: " + roles);
             }
         }
 
-        // Continue the filter chain
         chain.doFilter(request, response);
     }
 }

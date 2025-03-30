@@ -1,20 +1,26 @@
 package payup.payup.controller;
 
-import payup.payup.jwt.JwtTokenUtil;
-import payup.payup.model.User;
-import payup.payup.service.UserService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import payup.payup.jwt.JwtTokenUtil;
+import payup.payup.model.User;
+import payup.payup.service.UserService;
 
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
+
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Logger;
 
 @RestController
@@ -32,7 +38,7 @@ public class AuthController {
     private AuthenticationManager authenticationManager;
 
     /**
-     * Endpoint for user registration. 
+     * Endpoint for user registration.
      * @param user User data to register.
      * @return ResponseEntity with the registered user details or an error.
      */
@@ -76,7 +82,14 @@ public class AuthController {
         cookie.setPath("/");
         response.addCookie(cookie);
 
+        // Create response object
+        Map<String, Object> responseBody = new HashMap<>();
+        responseBody.put("message", "Login successful");
+        responseBody.put("token", token);
+        responseBody.put("userDetails", userDetails);
+
+
         LOGGER.info("User logged in: " + authRequest.getEmail());
-        return ResponseEntity.ok("Login successful");
+        return ResponseEntity.ok(responseBody);
     }
 }

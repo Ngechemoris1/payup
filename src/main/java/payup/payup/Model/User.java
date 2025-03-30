@@ -1,78 +1,89 @@
 package payup.payup.model;
 
-import payup.payup.validator.ValidPassword;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
 
-import javax.persistence.*;
-import javax.validation.constraints.*;
-import java.time.LocalDateTime;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import jakarta.validation.constraints.NotEmpty;
+import payup.payup.model.User.UserRole;
+
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
 @Table(name = "users")
-@EntityListeners(AuditingEntityListener.class)
 public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank(message = "Name is required")
-    @Size(min = 3, max = 50, message = "Name must be between 3 and 50 characters")
-    private String name;
+    @Column
+    private String lastName;
 
-    @NotBlank(message = "Email is required")
-    @Email(message = "Invalid email format")
+    @Column(nullable = false, unique = true)
+    @Email(message = "Email should be valid")
     private String email;
 
-    @NotBlank(message = "Phone number is required")
-    @Size(min = 10, max = 15, message = "Phone number must be between 10 and 15 digits")
+    @Column(nullable = false, unique = true)
+    @NotEmpty(message = "Phone cannot be empty")
     private String phone;
 
-    @NotBlank(message = "Password is required")
-    @ValidPassword
+    @Column(nullable = false)
     private String password;
 
     @Enumerated(EnumType.STRING)
     private UserRole role;
 
-    @CreatedDate
-    private LocalDateTime createdDate;
-
-    @LastModifiedDate
-    private LocalDateTime lastModifiedDate;
-
-    // Relationships
-    @OneToMany(mappedBy = "owner", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "owner", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Property> properties;
 
-    // Constructors
-    public User() {
+    public enum UserRole {
+        ADMIN, LANDLORD, TENANT
     }
 
-    public User(String name, String email, String phone, String password, UserRole role) {
-        this.name = name;
-        this.email = email;
-        this.phone = phone;
-        this.password = password;
-        this.role = role;
+    public User() {
+        this.properties = new ArrayList<>();
     }
 
     // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getName() { return firstName + " " + lastName; }
+    public void setName(String name) {
+        String[] parts = name.split(" ", 2);
+        this.firstName = parts[0];
+        this.lastName = parts.length > 1 ? parts[1] : "";
+    }
+    private String firstName;
 
-    /**
-     * Encodes the password before saving it to the database.
-     * @param password The plain text password to encode.
-     */
-    public void encodePassword(String password) {
-        this.password = new BCryptPasswordEncoder().encode(password);
+    public String getFirstName() {
+        return firstName;
     }
 
-    // ... other getters and setters
+    public void setFirstName(String firstName) {
+        this.firstName = firstName;
+    }
+    
+        public String getLastName() {
+            return lastName;
+        }
+    
+        public void setLastName(String lastName) {
+            this.lastName = lastName;
+        }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public UserRole getRole() { return role; }
+    public void setRole(UserRole role) { this.role = role; }
+    public List<Property> getProperties() { return properties; }
+    public void setProperties(List<Property> properties) { this.properties = properties; }
 
-    // Enum for user roles
-    public enum UserRole {
-        ADMIN, LANDLORD, TENANT
+    public void encodePassword(String rawPassword, BCryptPasswordEncoder encoder) {
+        this.password = encoder.encode(rawPassword);
     }
 }

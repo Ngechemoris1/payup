@@ -14,8 +14,8 @@ import javax.sql.DataSource;
 import java.util.Properties;
 
 @Configuration
-@EnableJpaRepositories("com.payup.repository")
-public class DatabaseConfig {
+@EnableJpaRepositories(basePackages = "payup.repository")
+public class databaseconfig {
 
     /**
      * Configures a data source for development environment using H2.
@@ -24,12 +24,12 @@ public class DatabaseConfig {
      */
     @Bean
     @Profile("!production")
-    public DataSource developmentDataSource() {
+    public DataSource dataSource() {
         return DataSourceBuilder.create()
                 .driverClassName("org.h2.Driver")
                 .url("jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1")
                 .username("sa")
-                .password("")
+                .password("payup##")
                 .build();
     }
 
@@ -57,8 +57,8 @@ public class DatabaseConfig {
     @Bean
     public LocalContainerEntityManagerFactoryBean entityManagerFactory() {
         LocalContainerEntityManagerFactoryBean em = new LocalContainerEntityManagerFactoryBean();
-        em.setDataSource(productionDataSource()); // or use developmentDataSource based on profile
-        em.setPackagesToScan("com.payup.model");
+        em.setDataSource(dataSource()); // or use developmentDataSource based on profile
+        em.setPackagesToScan("payup.payup.model");
 
         HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
         em.setJpaVendorAdapter(vendorAdapter);
@@ -74,11 +74,9 @@ public class DatabaseConfig {
      */
     Properties additionalProperties() {
         Properties properties = new Properties();
-        properties.setProperty("hibernate.hbm2ddl.auto", "validate"); // Change to 'update' for development
+        properties.setProperty("hibernate.hbm2ddl.auto", "update"); // Change to 'update' for development
         properties.setProperty("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect"); // or H2Dialect
         properties.setProperty("hibernate.encrypt.enabled", "true");
-        properties.setProperty("hibernate.encrypt.key", "${hibernate.encrypt.key}"); // Use env var for security
-        properties.setProperty("hibernate.encrypt.algorithm", "AES");
         return properties;
     }
 
