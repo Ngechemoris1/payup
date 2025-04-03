@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import payup.payup.dto.TenantDto;
 import payup.payup.model.Notification;
 import payup.payup.model.Rent;
 import payup.payup.model.Tenant;
@@ -40,6 +41,18 @@ public class TenantController {
 
     @Autowired
     private NotificationService notificationService;
+
+    @GetMapping("/{id}")
+    public ResponseEntity<TenantDto> getTenant(@PathVariable Long id) {
+        Tenant tenant = tenantService.getTenantById(id);
+        return ResponseEntity.ok(new TenantDto(tenant));
+    }
+
+    @PostMapping
+    public ResponseEntity<TenantDto> createTenant(@RequestBody Tenant tenant) {
+        Tenant savedTenant = tenantService.save(tenant);
+        return ResponseEntity.ok(new TenantDto(savedTenant));
+    }
 
     /**
      * Retrieves the profile of the currently authenticated tenant.

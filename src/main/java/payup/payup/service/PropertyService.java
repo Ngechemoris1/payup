@@ -44,44 +44,78 @@ public class PropertyService {
     /**
      * Creates a new property and assigns it to a specified landlord, including floors and rooms.
      *
-     * @param property   The Property object containing details such as name, type, location, and units.
-     * @param landlordId The ID of the landlord (User with LANDLORD role) to whom the property will be assigned.
+     * @param property       The Property object containing details such as name, type, location, and units.
+     * @param landlordId     The ID of the landlord (User with LANDLORD role) to whom the property will be assigned.
+     * @param numberOfFloors
      * @return The created Property object with an assigned ID, floors, rooms, and updated timestamps.
      * @throws UserNotFoundException    If no landlord exists with the specified ID.
      * @throws IllegalArgumentException If the user with the specified ID is not a landlord.
      */
     @Transactional
-    public Property createProperty(Property property, Long landlordId) throws UserNotFoundException {
-        logger.info("Creating property for landlord with ID: {}", landlordId);
+    public Property createProperty(Property property, Long landlordId, int numberOfFloors) throws UserNotFoundException {
+        logger.info("Creating property with {} floors for landlord ID: {}", numberOfFloors, landlordId);
+
+        // Validate landlord
         User landlord = userRepository.findById(landlordId)
                 .orElseThrow(() -> new UserNotFoundException("Landlord not found with ID: " + landlordId));
         if (!landlord.getRole().equals(User.UserRole.LANDLORD)) {
             throw new IllegalArgumentException("User with ID " + landlordId + " is not a landlord");
         }
+
+        // Validate floors
+        if (numberOfFloors < 1) {
+            throw new IllegalArgumentException("Property must have at least 1 floor");
+        }
+
+        // Validate units
+        if (property.getUnits() < numberOfFloors) {
+            throw new IllegalArgumentException("Number of units cannot be less than number of floors");
+        }
+
+        // Set basic property info
         property.setOwner(landlord);
         property.setCreatedAt(LocalDateTime.now());
         property.setUpdatedAt(LocalDateTime.now());
         Property savedProperty = propertyRepository.save(property);
 
-        // Create a default floor
-        Floor floor = new Floor();
-        floor.setFloorName("Ground Floor");
-        floor.setProperty(savedProperty);
-        Floor savedFloor = floorRepository.save(floor);
+        // Create floors
+        int unitsPerFloor = (int) Math.ceil((double) property.getUnits() / numberOfFloors);
+        int remainingUnits = property.getUnits();
 
-        // Create rooms based on units
-        int units = property.getUnits();
-        for (int i = 1; i <= units; i++) {
-            Room room = new Room();
-            room.setRoomNumber(i); // e.g., 1, 2, ..., 10
-            room.setOccupied(false);
-            room.setRentAmount(1000.0); // Default rent amount, adjust as needed
-            room.setFloor(savedFloor);
-            room.setProperty(savedProperty);
-            roomRepository.save(room);
+        for (int floorNum = 0; floorNum < numberOfFloors; floorNum++) {
+            Floor floor = new Floor();
+            floor.setFloorNumber(floorNum);
+            floor.setFloorName(getFloorName(floorNum)); // Helper method for naming
+            floor.setProperty(savedProperty);
+            Floor savedFloor = floorRepository.save(floor);
+
+            // Create rooms for this floor
+            int floorUnits = Math.min(unitsPerFloor, remainingUnits);
+            createRoomsForFloor(savedProperty, savedFloor, floorUnits, floorNum);
+            remainingUnits -= floorUnits;
         }
 
         return savedProperty;
+    }
+
+    private String getFloorName(int floorNumber) {
+        if (floorNumber == 0) return "Ground Floor";
+        if (floorNumber == 1) return "1st Floor";
+        if (floorNumber == 2) return "2nd Floor";
+        if (floorNumber == 3) return "3rd Floor";
+        return floorNumber + "th Floor";
+    }
+
+    private void createRoomsForFloor(Property property, Floor floor, int units, int floorNumber) {
+        for (int i = 1; i <= units; i++) {
+            Room room = new Room();
+            room.setRoomNumber(floorNumber * 100 + i); // e.g., 101, 102,... 201, 202, etc.
+            room.setOccupied(false);
+            room.setRentAmount(1000.0); // Default rent
+            room.setFloor(floor);
+            room.setProperty(property);
+            roomRepository.save(room);
+        }
     }
 
     /**

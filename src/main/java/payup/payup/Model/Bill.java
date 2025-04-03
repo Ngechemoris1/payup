@@ -41,6 +41,10 @@ public class Bill {
     @Column(nullable = false)
     private BillStatus status;
 
+    public Bill() {
+
+    }
+
     /**
      * Enum representing the possible statuses of a bill.
      */

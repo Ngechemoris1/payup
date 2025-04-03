@@ -27,8 +27,14 @@ public class PropertyController {
             property.setType((String) request.get("type"));
             property.setLocation((String) request.get("location"));
             property.setUnits(Integer.parseInt(request.get("units").toString()));
+
+            // New parameter for number of floors
+            int numberOfFloors = request.containsKey("numberOfFloors")
+                    ? Integer.parseInt(request.get("numberOfFloors").toString())
+                    : 1; // Default to 1 floor if not specified
+
             Long landlordId = Long.valueOf(request.get("landlordId").toString());
-            Property createdProperty = propertyService.createProperty(property, landlordId);
+            Property createdProperty = propertyService.createProperty(property, landlordId, numberOfFloors);
             return ResponseEntity.ok(createdProperty);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error creating property: " + e.getMessage());

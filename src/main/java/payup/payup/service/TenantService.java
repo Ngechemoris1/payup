@@ -77,6 +77,7 @@ public class TenantService {
      * @throws IllegalArgumentException if the tenant data is invalid (e.g., null or missing required fields).
      */
     public Tenant save(Tenant tenant) {
+
         if (tenant == null) {
             logger.error("Attempted to save null tenant");
             throw new IllegalArgumentException("Tenant cannot be null");

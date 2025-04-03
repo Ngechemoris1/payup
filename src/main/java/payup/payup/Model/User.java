@@ -1,5 +1,6 @@
 package payup.payup.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
@@ -86,4 +87,5 @@ public class User {
     public void encodePassword(String rawPassword, BCryptPasswordEncoder encoder) {
         this.password = encoder.encode(rawPassword);
     }
+
 }
