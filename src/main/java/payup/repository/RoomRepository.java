@@ -1,16 +1,28 @@
 package payup.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import payup.payup.model.Property;
 import payup.payup.model.Room;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Repository interface for managing Room entities in the PayUp system.
  * Provides CRUD operations and custom queries for retrieving rooms based on property, floor, and occupancy.
  */
 public interface RoomRepository extends JpaRepository<Room, Long> {
+
+    /**
+     * Retrieves the highest room number currently assigned across all rooms in the database.
+     * This is used to ensure new rooms are assigned unique room numbers when the roomNumber
+     * column has a global unique constraint.
+     *
+     * @return An Optional containing the maximum room number, or empty if no rooms exist.
+     */
+    @Query("SELECT MAX(r.roomNumber) FROM Room r")
+    Optional<Integer> findMaxRoomNumber();
 
     /**
      * Retrieves all rooms in a specific property.

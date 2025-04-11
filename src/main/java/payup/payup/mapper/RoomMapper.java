@@ -24,7 +24,6 @@ public class RoomMapper {
         dto.setRoomNumber(room.getRoomNumber());
         dto.setRentAmount(room.getRentAmount());
         dto.setOccupied(room.isOccupied());
-
         if (room.getFloor() != null) {
             dto.setFloor(floorMapper.toDto(room.getFloor()));
         }
@@ -44,7 +43,12 @@ public class RoomMapper {
         room.setRoomNumber(dto.getRoomNumber());
         room.setRentAmount(dto.getRentAmount());
         room.setOccupied(dto.isOccupied());
-        // Relationships should be set separately via service
+        if (dto.getFloor() != null) {
+            room.setFloor(floorMapper.toEntity(dto.getFloor()));
+        }
+        if (dto.getProperty() != null) {
+            room.setProperty(propertyMapper.toEntity(dto.getProperty()));
+        }
         return room;
     }
 }

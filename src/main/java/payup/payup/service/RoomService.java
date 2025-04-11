@@ -58,6 +58,17 @@ public class RoomService {
         return roomRepository.save(room);
     }
 
+    public Room updateRoom(Room room) {
+        logger.info("Updating room with ID: {}", room.getId());
+        Objects.requireNonNull(room, "Room must not be null");
+        Objects.requireNonNull(room.getId(), "Room ID must not be null");
+        if (!roomRepository.existsById(room.getId())) {
+            throw new RuntimeException("Room not found with ID: " + room.getId());
+        }
+        return roomRepository.save(room); // Updates existing room to occupancy true if a tenant is added
+    }
+
+
     /**
      * Validates the essential attributes of a Room object.
      *
@@ -71,6 +82,11 @@ public class RoomService {
         if (room.getRentAmount() <= 0) {
             throw new IllegalArgumentException("Rent amount must be a positive value");
         }
+    }
+
+    public Room getRoomById(Long id) {
+        return roomRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Room not found with ID: " + id));
     }
 
     /**

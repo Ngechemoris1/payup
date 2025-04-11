@@ -8,21 +8,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-import payup.payup.dto.*;
-import payup.payup.mapper.*;
-import payup.payup.model.Property;
-import payup.payup.model.Rent;
-import payup.payup.model.Tenant;
+import payup.payup.dto.PropertyDto;
+import payup.payup.dto.TenantDto;
+import payup.payup.mapper.PropertyMapper;
+import payup.payup.mapper.TenantMapper;
+import payup.payup.model.*;
 import payup.payup.service.*;
 
-
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * REST controller for landlord-specific operations.
- * Provides endpoints for managing properties, tenants, and rents with DTO support.
- * All endpoints require LANDLORD role authorization.
+ * REST controller for landlord-specific operations. Provides endpoints for managing
+ * properties, tenants, and rents, restricted to users with the 'LANDLORD' role.
  */
 @RestController
 @RequestMapping("/api/landlord")
@@ -30,158 +29,91 @@ public class LandlordController {
 
     private static final Logger logger = LoggerFactory.getLogger(LandlordController.class);
 
-    private final PropertyService propertyService;
-    private final TenantService tenantService;
-    private final RentService rentService;
-    private static UserService userService;
-    private final PropertyMapper propertyMapper;
-    private final TenantMapper tenantMapper;
-    private final RentMapper rentMapper;
-
-    @Autowired
-    public LandlordController(PropertyService propertyService,
-                              TenantService tenantService,
-                              RentService rentService,
-                              UserService userService,
-                              PropertyMapper propertyMapper,
-                              TenantMapper tenantMapper,
-                              RentMapper rentMapper) {
-        this.propertyService = propertyService;
-        this.tenantService = tenantService;
-        this.rentService = rentService;
-        this.userService = userService;
-        this.propertyMapper = propertyMapper;
-        this.tenantMapper = tenantMapper;
-        this.rentMapper = rentMapper;
-    }
+    @Autowired private PropertyService propertyService;
+    @Autowired private TenantService tenantService;
+    @Autowired private RentService rentService;
+    @Autowired private UserService userService;
+    @Autowired private PropertyMapper propertyMapper;
+    @Autowired private TenantMapper tenantMapper;
 
     /**
      * Retrieves all properties owned by the authenticated landlord.
      *
-     * @return ResponseEntity containing List of PropertyDto objects or ErrorResponseDto
+     * @return ResponseEntity containing a List of Property objects or 404 if the landlord is not found.
      */
     @GetMapping("/properties")
     @PreAuthorize("hasRole('LANDLORD')")
     public ResponseEntity<?> getProperties() {
+        logger.info("Fetching properties for authenticated landlord");
         try {
-            logger.info("Fetching properties for authenticated landlord");
-            Long landlordId = SecurityUtil.getAuthenticatedUserId();
-
-            List<Property> properties = propertyService.getPropertiesByLandlord(landlordId);
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            User landlord = userService.findByEmail(email).orElse(null);
+            if (landlord == null) {
+                logger.warn("Landlord not found for email: {}", email);
+                return ResponseEntity.notFound().build();
+            }
+            List<Property> properties = propertyService.getPropertiesByLandlord(landlord.getId());
             List<PropertyDto> propertyDtos = properties.stream()
                     .map(propertyMapper::toDto)
                     .collect(Collectors.toList());
-
-            logger.info("Found {} properties for landlordId={}", propertyDtos.size(), landlordId);
+            logger.info("Returning {} properties for landlordId={}", propertyDtos.size(), landlord.getId());
             return ResponseEntity.ok(propertyDtos);
-
         } catch (Exception e) {
-            logger.error("Error fetching properties: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ErrorResponseDto("Properties not found", e.getMessage()));
+            logger.error("Error fetching properties: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", "Error fetching properties: " + e.getMessage()));
         }
     }
 
     /**
      * Retrieves all tenants for a specific property owned by the authenticated landlord.
      *
-     * @param propertyId ID of the property
-     * @return ResponseEntity containing List of TenantDto objects or ErrorResponseDto
+     * @param propertyId The ID of the property.
+     * @return ResponseEntity containing a List of Tenant objects or 403/404 if unauthorized or not found.
      */
     @GetMapping("/properties/{propertyId}/tenants")
     @PreAuthorize("hasRole('LANDLORD')")
     public ResponseEntity<?> getTenantsByProperty(@PathVariable Long propertyId) {
-        try {
-            logger.info("Fetching tenants for propertyId={}", propertyId);
-            Long landlordId = SecurityUtil.getAuthenticatedUserId();
-
-            // Verify property ownership
-            if (!propertyService.isPropertyOwner(propertyId, landlordId)) {
-                logger.warn("Unauthorized access to propertyId={} by landlordId={}", propertyId, landlordId);
-                return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(new ErrorResponseDto("Unauthorized", "Access to property denied"));
-            }
-
-            List<Tenant> tenants = tenantService.getTenantsByProperty(propertyId);
-            List<TenantDto> tenantDtos = tenants.stream()
-                    .map(tenantMapper::toDto)
-                    .collect(Collectors.toList());
-
-            logger.info("Found {} tenants for propertyId={}", tenantDtos.size(), propertyId);
-            return ResponseEntity.ok(tenantDtos);
-
-        } catch (Exception e) {
-            logger.error("Error fetching tenants: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ErrorResponseDto("Tenants not found", e.getMessage()));
+        logger.info("Fetching tenants for propertyId={}", propertyId);
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        User landlord = userService.findByEmail(email).orElse(null);
+        if (landlord == null) {
+            logger.warn("Landlord not found for email: {}", email);
+            return ResponseEntity.notFound().build();
         }
+        if (!propertyService.isPropertyOwner(propertyId, landlord.getId())) {
+            logger.warn("Unauthorized access to propertyId={} by landlordId={}", propertyId, landlord.getId());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Unauthorized access to property"));
+        }
+        List<Tenant> tenants = tenantService.getTenantsByProperty(propertyId);
+        List<TenantDto> tenantDtos = tenants.stream()
+                .map(tenantMapper::toDto) // Use TenantMapper to convert to DTO
+                .collect(Collectors.toList());
+        logger.info("Returning {} tenants for propertyId={}", tenantDtos.size(), propertyId);
+        return ResponseEntity.ok(tenantDtos); // Return DTOs instead of raw entities
     }
 
     /**
-     * Retrieves rent details for a specific tenant under landlord's property.
+     * Retrieves rent details for a specific tenant under a property owned by the authenticated landlord.
      *
-     * @param tenantId ID of the tenant
-     * @return ResponseEntity containing List of RentDto objects or ErrorResponseDto
+     * @param tenantId The ID of the tenant.
+     * @return ResponseEntity containing a List of Rent objects or 404 if not found or unauthorized.
      */
     @GetMapping("/tenants/{tenantId}/rents")
     @PreAuthorize("hasRole('LANDLORD')")
     public ResponseEntity<?> getRentsByTenant(@PathVariable Long tenantId) {
-        try {
-            logger.info("Fetching rents for tenantId={}", tenantId);
-            Long landlordId = SecurityUtil.getAuthenticatedUserId();
-
-            Tenant tenant = tenantService.getTenantById(tenantId);
-            if (tenant == null || !propertyService.isPropertyOwner(tenant.getProperty().getId(), landlordId)) {
-                logger.warn("Tenant not found or unauthorized: tenantId={}", tenantId);
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(new ErrorResponseDto("Not found", "Tenant not found or unauthorized"));
-            }
-
-            List<Rent> rents = rentService.getRentsByTenant(tenantId);
-            List<RentDto> rentDtos = rents.stream()
-                    .map(rentMapper::toDto)
-                    .collect(Collectors.toList());
-
-            logger.info("Found {} rents for tenantId={}", rentDtos.size(), tenantId);
-            return ResponseEntity.ok(rentDtos);
-
-        } catch (Exception e) {
-            logger.error("Error fetching rents: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ErrorResponseDto("Server error", e.getMessage()));
+        logger.info("Fetching rents for tenantId={}", tenantId);
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        User landlord = userService.findByEmail(email).orElse(null);
+        if (landlord == null) {
+            logger.warn("Landlord not found for email: {}", email);
+            return ResponseEntity.notFound().build();
         }
-    }
-
-    /**
-     * Utility class for security-related operations
-     */
-    private static class SecurityUtil {
-        public static Long getAuthenticatedUserId() {
-            String email = SecurityContextHolder.getContext().getAuthentication().getName();
-            return userService.findByEmail(email)
-                    .orElseThrow(() -> new RuntimeException("User not found"))
-                    .getId();
+        Tenant tenant = tenantService.getTenantById(tenantId);
+        if (tenant == null || !propertyService.isPropertyOwner(tenant.getProperty().getId(), landlord.getId())) {
+            logger.warn("Tenant not found or unauthorized: tenantId={}", tenantId);
+            return ResponseEntity.notFound().build();
         }
-    }
-
-    /**
-     * Data transfer object for error responses
-     */
-    private static class ErrorResponseDto {
-        private final String error;
-        private final String message;
-
-        public ErrorResponseDto(String error, String message) {
-            this.error = error;
-            this.message = message;
-        }
-
-        public String getError() {
-            return error;
-        }
-
-        public String getMessage() {
-            return message;
-        }
+        List<Rent> rents = rentService.getRentsByTenant(tenantId);
+        return ResponseEntity.ok(rents);
     }
 }

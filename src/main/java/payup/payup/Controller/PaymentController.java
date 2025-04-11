@@ -18,6 +18,7 @@ import payup.payup.service.MpesaService;
 import payup.repository.TenantRepository;
 
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * REST controller for managing payment operations in the PayUp system.
@@ -108,7 +109,7 @@ public class PaymentController {
                 callbackData.getTransactionId());
 
         try {
-            mpesaService.handleCallback(callbackData);
+            mpesaService.handleCallback((Map<String, Object>) callbackData);
             logger.debug("Callback processed successfully");
             return ResponseEntity.ok(new BasicResponseDto("Callback processed successfully"));
         } catch (Exception e) {

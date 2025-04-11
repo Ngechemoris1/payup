@@ -1,89 +1,167 @@
 package payup.payup.controller;
 
+import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import payup.payup.dto.*;
+import payup.payup.mapper.PropertyMapper;
 import payup.payup.model.Property;
-import payup.payup.model.User;
 import payup.payup.service.PropertyService;
 
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
+/**
+ * REST controller for managing property operations.
+ * Provides CRUD endpoints for properties with ADMIN role authorization.
+ */
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping("/api/admin/property")
 public class PropertyController {
 
+    private static final Logger logger = LoggerFactory.getLogger(PropertyController.class);
+
+    private final PropertyService propertyService;
+    private final PropertyMapper propertyMapper;
+
     @Autowired
-    private PropertyService propertyService;
+    public PropertyController(PropertyService propertyService, PropertyMapper propertyMapper) {
+        this.propertyService = propertyService;
+        this.propertyMapper = propertyMapper;
+    }
 
-    @PostMapping("/property")
+    /**
+     * Creates a new property with the specified details
+     * @param request Property creation request DTO
+     * @return ResponseEntity with created PropertyDto or ErrorResponseDto
+     */
+    @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<?> createProperty(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<?> createProperty(@Valid @RequestBody PropertyCreateRequestDto request) {
         try {
-            Property property = new Property();
-            property.setName((String) request.get("name"));
-            property.setType((String) request.get("type"));
-            property.setLocation((String) request.get("location"));
-            property.setUnits(Integer.parseInt(request.get("units").toString()));
+            logger.info("Creating property: {}", request.getName());
 
-            // New parameter for number of floors
-            int numberOfFloors = request.containsKey("numberOfFloors")
-                    ? Integer.parseInt(request.get("numberOfFloors").toString())
-                    : 1; // Default to 1 floor if not specified
+            Property createdProperty = propertyService.createProperty(
+                    propertyMapper.toEntity(request),
+                    request.getLandlordId(),
+                    request.getNumberOfFloors()
+            );
 
-            Long landlordId = Long.valueOf(request.get("landlordId").toString());
-            Property createdProperty = propertyService.createProperty(property, landlordId, numberOfFloors);
-            return ResponseEntity.ok(createdProperty);
+            PropertyDto responseDto = propertyMapper.toDto(createdProperty);
+            logger.info("Property created successfully with ID: {}", createdProperty.getId());
+            return ResponseEntity.status(HttpStatus.CREATED).body(responseDto);
+
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Error creating property: " + e.getMessage());
+            logger.error("Failed to create property: {}", e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponseDto("Property creation failed", e.getMessage()));
         }
     }
 
-    @PutMapping("/property/{propertyId}")
+    /**
+     * Updates an existing property
+     * @param propertyId ID of property to update
+     * @param request Property update request DTO
+     * @return ResponseEntity with updated PropertyDto or ErrorResponseDto
+     */
+    @PutMapping("/{propertyId}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<?> updateProperty(@PathVariable Long propertyId, @RequestBody Map<String, Object> request) {
+    public ResponseEntity<?> updateProperty(
+            @PathVariable Long propertyId,
+            @Valid @RequestBody PropertyUpdateRequestDto request) {
+
         try {
-            Property existingProperty = propertyService.findById(propertyId)
-                    .orElseThrow(() -> new IllegalArgumentException("Property not found with ID: " + propertyId));
-            existingProperty.setName((String) request.get("name"));
-            existingProperty.setType((String) request.get("type"));
-            existingProperty.setLocation((String) request.get("location"));
-            existingProperty.setUnits(Integer.parseInt(request.get("units").toString()));
-            Long landlordId = Long.valueOf(request.get("landlordId").toString());
-            User landlord = new User();
-            landlord.setId(landlordId);
-            existingProperty.setOwner(landlord);
-            Property updatedProperty = propertyService.updateProperty(propertyId, existingProperty);
-            return ResponseEntity.ok(updatedProperty);
+            logger.info("Updating property ID: {}", propertyId);
+
+            Property property = propertyMapper.toEntity(request);
+            Property updatedProperty = propertyService.updateProperty(propertyId, property);
+
+            PropertyDto responseDto = propertyMapper.toDto(updatedProperty);
+            logger.info("Property {} updated successfully", propertyId);
+            return ResponseEntity.ok(responseDto);
+
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Error updating property: " + e.getMessage());
+            logger.error("Failed to update property {}: {}", propertyId, e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponseDto("Property update failed", e.getMessage()));
         }
     }
 
-    @DeleteMapping("/property/{propertyId}")
+    /**
+     * Deletes a property by ID
+     * @param propertyId ID of property to delete
+     * @return ResponseEntity with success message or ErrorResponseDto
+     */
+    @DeleteMapping("/{propertyId}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> deleteProperty(@PathVariable Long propertyId) {
         try {
+            logger.info("Deleting property ID: {}", propertyId);
             propertyService.deleteProperty(propertyId);
-            return ResponseEntity.ok(Map.of("message", "Property deleted successfully"));
+
+            logger.info("Property {} deleted successfully", propertyId);
+            return ResponseEntity.ok(new BasicResponseDto("Property deleted successfully"));
+
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Error deleting property: " + e.getMessage());
+            logger.error("Failed to delete property {}: {}", propertyId, e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponseDto("Property deletion failed", e.getMessage()));
         }
     }
 
-    @GetMapping("/properties/landlord/{landlordId}")
+    /**
+     * Gets all properties for a specific landlord
+     * @param landlordId ID of landlord
+     * @return ResponseEntity with List of PropertyDto or ErrorResponseDto
+     */
+    @GetMapping("/landlord/{landlordId}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> getPropertiesByLandlord(@PathVariable Long landlordId) {
-        List<Property> properties = propertyService.getPropertiesByLandlord(landlordId);
-        return ResponseEntity.ok(properties);
+        try {
+            logger.info("Fetching properties for landlord ID: {}", landlordId);
+            List<Property> properties = propertyService.getPropertiesByLandlord(landlordId);
+
+            List<PropertyDto> responseDtos = properties.stream()
+                    .map(propertyMapper::toDto)
+                    .collect(Collectors.toList());
+
+            logger.info("Found {} properties for landlord {}", responseDtos.size(), landlordId);
+            return ResponseEntity.ok(responseDtos);
+
+        } catch (Exception e) {
+            logger.error("Failed to fetch properties for landlord {}: {}", landlordId, e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponseDto("Failed to fetch properties", e.getMessage()));
+        }
     }
 
-    @GetMapping("/properties")
+    /**
+     * Gets all properties in the system
+     * @return ResponseEntity with List of PropertyDto or ErrorResponseDto
+     */
+    @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<Property>> getAllProperties() {
-        List<Property> properties = propertyService.findAll();
-        return ResponseEntity.ok(properties);
+    public ResponseEntity<?> getAllProperties() {
+        try {
+            logger.info("Fetching all properties");
+            List<Property> properties = propertyService.findAll();
+
+            List<PropertyDto> responseDtos = properties.stream()
+                    .map(propertyMapper::toDto)
+                    .collect(Collectors.toList());
+
+            logger.info("Found {} properties", responseDtos.size());
+            return ResponseEntity.ok(responseDtos);
+
+        } catch (Exception e) {
+            logger.error("Failed to fetch properties: {}", e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponseDto("Failed to fetch properties", e.getMessage()));
+        }
     }
 }

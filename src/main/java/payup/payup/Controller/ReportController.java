@@ -10,14 +10,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import payup.payup.dto.KeyValueReportDto;
+import payup.payup.dto.PaymentDto;
+import payup.payup.dto.PropertyPerformanceReportDto;
+import payup.payup.dto.TenantPaymentHistoryReportDto;
 import payup.payup.exception.ReportGenerationException;
+import payup.payup.mapper.PaymentMapper;
 import payup.payup.model.Payment;
 import payup.payup.service.ReportService;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * REST controller for generating and exporting reports in the PayUp system. Provides endpoints
@@ -33,26 +38,29 @@ public class ReportController {
     @Autowired
     private ReportService reportService;
 
+    @Autowired
+    private PaymentMapper paymentMapper;
+
     /**
      * Generates a report of unpaid dues, showing amounts owed by tenants.
      *
      * @param page The page number for paginated results (default is 0).
-     * @return ResponseEntity containing a Map of tenant IDs to unpaid dues with HTTP 200 (OK) status.
+     * @return ResponseEntity containing a KeyValueReportDto with tenant IDs mapped to unpaid dues and HTTP 200 (OK) status.
      * @throws ReportGenerationException if report generation fails.
      */
     @GetMapping("/unpaid-dues")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<Long, Double>> getUnpaidDuesReport(@RequestParam(defaultValue = "0") int page) {
+    public ResponseEntity<KeyValueReportDto> getUnpaidDuesReport(@RequestParam(defaultValue = "0") int page) {
         logger.info("Generating unpaid dues report for page={}", page);
         validatePage(page);
         try {
             Map<Long, Double> report = reportService.generateUnpaidDuesReport(page);
             logger.debug("Unpaid dues report generated: {} entries", report.size());
-            return ResponseEntity.ok(report);
+            return ResponseEntity.ok(new KeyValueReportDto(report));
         } catch (ReportGenerationException e) {
             logger.error("Failed to generate unpaid dues report: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(-1L, -1.0, "error".hashCode() * 1L, Double.valueOf("Failed to generate report: " + e.getMessage())));
+                    .body(new KeyValueReportDto(Map.of(-1L, -1.0)));
         }
     }
 
@@ -60,64 +68,64 @@ public class ReportController {
      * Generates a report of total payments made by tenants.
      *
      * @param page The page number for paginated results (default is 0).
-     * @return ResponseEntity containing a Map of tenant IDs to total payments with HTTP 200 (OK) status.
+     * @return ResponseEntity containing a KeyValueReportDto with tenant IDs mapped to total payments and HTTP 200 (OK) status.
      * @throws ReportGenerationException if report generation fails.
      */
     @GetMapping("/total-payments")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<Long, Double>> getTotalPaymentsReport(@RequestParam(defaultValue = "0") int page) {
+    public ResponseEntity<KeyValueReportDto> getTotalPaymentsReport(@RequestParam(defaultValue = "0") int page) {
         logger.info("Generating total payments report for page={}", page);
         validatePage(page);
         try {
             Map<Long, Double> report = reportService.generateTotalPaymentsReport(page);
             logger.debug("Total payments report generated: {} entries", report.size());
-            return ResponseEntity.ok(report);
+            return ResponseEntity.ok(new KeyValueReportDto(report));
         } catch (ReportGenerationException e) {
             logger.error("Failed to generate total payments report: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(-1L, Double.NaN));
+                    .body(new KeyValueReportDto(Map.of(-1L, Double.NaN)));
         }
     }
 
     /**
      * Generates a report of occupancy rates across properties.
      *
-     * @return ResponseEntity containing a Map of property IDs to occupancy rates with HTTP 200 (OK) status.
+     * @return ResponseEntity containing a KeyValueReportDto with property IDs mapped to occupancy rates and HTTP 200 (OK) status.
      * @throws ReportGenerationException if report generation fails.
      */
     @GetMapping("/occupancy-rates")
     @PreAuthorize("hasAnyRole('ADMIN', 'LANDLORD')")
-    public ResponseEntity<Map<Long, Double>> getOccupancyRatesReport() {
+    public ResponseEntity<KeyValueReportDto> getOccupancyRatesReport() {
         logger.info("Generating occupancy rates report");
         try {
             Map<Long, Double> report = reportService.generateOccupancyRatesReport();
             logger.debug("Occupancy rates report generated: {} entries", report.size());
-            return ResponseEntity.ok(report);
+            return ResponseEntity.ok(new KeyValueReportDto(report));
         } catch (ReportGenerationException e) {
             logger.error("Failed to generate occupancy rates report: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(-1L, Double.NaN));
+                    .body(new KeyValueReportDto(Map.of(-1L, Double.NaN)));
         }
     }
 
     /**
      * Generates a report of revenue collected from properties.
      *
-     * @return ResponseEntity containing a Map of property IDs to total revenue with HTTP 200 (OK) status.
+     * @return ResponseEntity containing a KeyValueReportDto with property IDs mapped to total revenue and HTTP 200 (OK) status.
      * @throws ReportGenerationException if report generation fails.
      */
     @GetMapping("/revenue-collection")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<Long, Double>> getRevenueCollectionReport() {
+    public ResponseEntity<KeyValueReportDto> getRevenueCollectionReport() {
         logger.info("Generating revenue collection report");
         try {
             Map<Long, Double> report = reportService.generateRevenueCollectionReport();
             logger.debug("Revenue collection report generated: {} entries", report.size());
-            return ResponseEntity.ok(report);
+            return ResponseEntity.ok(new KeyValueReportDto(report));
         } catch (ReportGenerationException e) {
             logger.error("Failed to generate revenue collection report: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(-1L, Double.NaN));
+                    .body(new KeyValueReportDto(Map.of(-1L, Double.NaN)));
         }
     }
 
@@ -125,7 +133,7 @@ public class ReportController {
      * Generates a payment history report for a specific tenant.
      *
      * @param tenantId The ID of the tenant whose payment history is requested.
-     * @return ResponseEntity containing a List of Payment objects with HTTP 200 (OK) status.
+     * @return ResponseEntity containing a TenantPaymentHistoryReportDto with payment details and HTTP 200 (OK) status.
      * @throws IllegalArgumentException if tenantId is null or invalid.
      */
     @GetMapping("/tenant-payment-history/{tenantId}")
@@ -137,34 +145,37 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("error", "Tenant ID must not be null"));
         }
         try {
-            List<Payment> report = reportService.generateTenantPaymentHistoryReport(tenantId);
-            logger.debug("Payment history report generated: {} entries", report.size());
-            return ResponseEntity.ok(report);
+            List<Payment> payments = reportService.generateTenantPaymentHistoryReport(tenantId);
+            List<PaymentDto> paymentDtos = payments.stream()
+                    .map(paymentMapper::toDto)
+                    .collect(Collectors.toList());
+            logger.debug("Payment history report generated: {} entries", paymentDtos.size());
+            return ResponseEntity.ok(new TenantPaymentHistoryReportDto(tenantId, paymentDtos));
         } catch (Exception e) {
             logger.error("Failed to generate payment history report for tenantId={}: {}", tenantId, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(-1L, Map.of("error", Double.NaN)));
+                    .body(new TenantPaymentHistoryReportDto(tenantId, List.of()));
         }
     }
 
     /**
      * Generates a comprehensive property performance report, including occupancy and revenue metrics.
      *
-     * @return ResponseEntity containing a Map of property IDs to performance metrics with HTTP 200 (OK) status.
+     * @return ResponseEntity containing a PropertyPerformanceReportDto with performance metrics and HTTP 200 (OK) status.
      * @throws ReportGenerationException if report generation fails.
      */
     @GetMapping("/property-performance")
     @PreAuthorize("hasAnyRole('ADMIN', 'LANDLORD')")
-    public ResponseEntity<Map<Long, Map<String, Double>>> getPropertyPerformanceReport() {
+    public ResponseEntity<PropertyPerformanceReportDto> getPropertyPerformanceReport() {
         logger.info("Generating property performance report");
         try {
             Map<Long, Map<String, Double>> report = reportService.generatePropertyPerformanceReport();
             logger.debug("Property performance report generated: {} entries", report.size());
-            return ResponseEntity.ok(report);
+            return ResponseEntity.ok(new PropertyPerformanceReportDto(report));
         } catch (ReportGenerationException e) {
             logger.error("Failed to generate property performance report: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(-1L, Map.of("error", Double.NaN)));
+                    .body(new PropertyPerformanceReportDto(Map.of(-1L, Map.of("error", Double.NaN))));
         }
     }
 

@@ -36,10 +36,10 @@ public class PropertyService {
     private UserRepository userRepository;
 
     @Autowired
-    private FloorRepository floorRepository; // Added for floor management
+    private FloorRepository floorRepository;
 
     @Autowired
-    private RoomRepository roomRepository; // Added for room management
+    private RoomRepository roomRepository;
 
     /**
      * Creates a new property and assigns it to a specified landlord, including floors and rooms.
@@ -55,44 +55,42 @@ public class PropertyService {
     public Property createProperty(Property property, Long landlordId, int numberOfFloors) throws UserNotFoundException {
         logger.info("Creating property with {} floors for landlord ID: {}", numberOfFloors, landlordId);
 
-        // Validate landlord
         User landlord = userRepository.findById(landlordId)
                 .orElseThrow(() -> new UserNotFoundException("Landlord not found with ID: " + landlordId));
         if (!landlord.getRole().equals(User.UserRole.LANDLORD)) {
             throw new IllegalArgumentException("User with ID " + landlordId + " is not a landlord");
         }
 
-        // Validate floors
         if (numberOfFloors < 1) {
             throw new IllegalArgumentException("Property must have at least 1 floor");
         }
 
-        // Validate units
         if (property.getUnits() < numberOfFloors) {
             throw new IllegalArgumentException("Number of units cannot be less than number of floors");
         }
 
-        // Set basic property info
         property.setOwner(landlord);
         property.setCreatedAt(LocalDateTime.now());
         property.setUpdatedAt(LocalDateTime.now());
         Property savedProperty = propertyRepository.save(property);
 
-        // Create floors
         int unitsPerFloor = (int) Math.ceil((double) property.getUnits() / numberOfFloors);
         int remainingUnits = property.getUnits();
+
+        // Get the highest existing room number globally
+        int maxRoomNumber = roomRepository.findMaxRoomNumber().orElse(0);
 
         for (int floorNum = 0; floorNum < numberOfFloors; floorNum++) {
             Floor floor = new Floor();
             floor.setFloorNumber(floorNum);
-            floor.setFloorName(getFloorName(floorNum)); // Helper method for naming
+            floor.setFloorName(getFloorName(floorNum));
             floor.setProperty(savedProperty);
             Floor savedFloor = floorRepository.save(floor);
 
-            // Create rooms for this floor
             int floorUnits = Math.min(unitsPerFloor, remainingUnits);
-            createRoomsForFloor(savedProperty, savedFloor, floorUnits, floorNum);
+            createRoomsForFloor(savedProperty, savedFloor, floorUnits, floorNum, maxRoomNumber);
             remainingUnits -= floorUnits;
+            maxRoomNumber += floorUnits;
         }
 
         return savedProperty;
@@ -106,16 +104,21 @@ public class PropertyService {
         return floorNumber + "th Floor";
     }
 
-    private void createRoomsForFloor(Property property, Floor floor, int units, int floorNumber) {
-        for (int i = 1; i <= units; i++) {
+    private void createRoomsForFloor(Property property, Floor floor, int units, int floorNumber, int startingRoomNumber) {
+        for (int i = 0; i < units; i++) {
             Room room = new Room();
-            room.setRoomNumber(floorNumber * 100 + i); // e.g., 101, 102,... 201, 202, etc.
+            room.setRoomNumber(startingRoomNumber + i + 1);
             room.setOccupied(false);
-            room.setRentAmount(1000.0); // Default rent
+            room.setRentAmount(1000.0);
             room.setFloor(floor);
             room.setProperty(property);
             roomRepository.save(room);
         }
+    }
+
+    public Property getPropertyById(Long id) {
+        return propertyRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Property not found with ID: " + id));
     }
 
     /**

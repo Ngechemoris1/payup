@@ -8,234 +8,410 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-import payup.payup.dto.TenantDto;
-import payup.payup.model.Notification;
-import payup.payup.model.Rent;
-import payup.payup.model.Tenant;
-import payup.payup.service.NotificationService;
-import payup.payup.service.RentService;
-import payup.payup.service.TenantService;
+import payup.payup.dto.*;
+import payup.payup.exception.ResourceNotFoundException;
+import payup.payup.mapper.RentMapper;
+import payup.payup.mapper.TenantMapper;
+import payup.payup.model.*;
+import payup.payup.service.*;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * REST controller for managing tenant-related operations in the PayUp system. Provides endpoints
- * for tenants to access and update their profiles, view rent dues, send notifications to admins,
- * and for admins to perform CRUD operations on tenant records. Access is restricted based on
- * user roles ('TENANT' or 'ADMIN').
+ * REST controller for managing tenant-related operations in the PayUp system.
+ * Provides endpoints for creating, retrieving, updating, and deleting tenants,
+ * as well as tenant-specific actions like viewing rent dues and notifying admins.
+ * Secured with role-based access control using Spring Security.
  */
 @RestController
-@RequestMapping("/api/tenant")
+@RequestMapping("/api/tenants")
 public class TenantController {
 
     private static final Logger logger = LoggerFactory.getLogger(TenantController.class);
 
+    private final TenantService tenantService;
+    private final UserService userService;
+    private final PropertyService propertyService;
+    private final RoomService roomService;
+    private final TenantMapper tenantMapper;
+    private final RentService rentService;
+    private final NotificationService notificationService;
+    private final RentMapper rentMapper;
+    private BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    /**
+     * Constructs a TenantController with required service and mapper dependencies.
+     *
+     * @param tenantService The service for tenant operations.
+     * @param userService The service for user operations.
+     * @param propertyService The service for property operations.
+     * @param roomService The service for room operations.
+     * @param tenantMapper The mapper for converting between Tenant entities and DTOs.
+     * @param rentService The service for rent operations.
+     * @param notificationService The service for notification operations.
+     * @param rentMapper The mapper for converting between Rent entities and DTOs.
+     */
     @Autowired
-    private TenantService tenantService;
-
-    @Autowired
-    private RentService rentService;
-
-    @Autowired
-    private NotificationService notificationService;
-
-    @GetMapping("/{id}")
-    public ResponseEntity<TenantDto> getTenant(@PathVariable Long id) {
-        Tenant tenant = tenantService.getTenantById(id);
-        return ResponseEntity.ok(new TenantDto(tenant));
-    }
-
-    @PostMapping
-    public ResponseEntity<TenantDto> createTenant(@RequestBody Tenant tenant) {
-        Tenant savedTenant = tenantService.save(tenant);
-        return ResponseEntity.ok(new TenantDto(savedTenant));
+    public TenantController(TenantService tenantService,
+                            UserService userService,
+                            PropertyService propertyService,
+                            RoomService roomService,
+                            TenantMapper tenantMapper,
+                            RentService rentService,
+                            NotificationService notificationService,
+                            PasswordEncoder passwordEncoder,
+                            RentMapper rentMapper) {
+        this.tenantService = tenantService;
+        this.userService = userService;
+        this.propertyService = propertyService;
+        this.roomService = roomService;
+        this.tenantMapper = tenantMapper;
+        this.rentService = rentService;
+        this.notificationService = notificationService;
+        this.rentMapper = rentMapper;
+        this.passwordEncoder = (BCryptPasswordEncoder) passwordEncoder;
     }
 
     /**
-     * Retrieves the profile of the currently authenticated tenant.
+     * Creates a new tenant in the system. Requires ADMIN role.
      *
-     * @return ResponseEntity containing the Tenant object with HTTP 200 (OK) status, or 404 if not found.
+     * @param tenantCreateDto The DTO containing tenant creation data.
+     * @return ResponseEntity with the created TenantDto or an error response.
+     */
+
+
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> createTenant(@Valid @RequestBody TenantCreateDto tenantCreateDto) {
+        logger.info("Creating new tenant: {}", tenantCreateDto.getEmail());
+        logger.debug("Request DTO: {}", tenantCreateDto);
+        try {
+            User user;
+            if (tenantCreateDto.getUserId() != null) {
+                user = userService.findById(tenantCreateDto.getUserId())
+                        .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + tenantCreateDto.getUserId()));
+            } else {
+                if (tenantCreateDto.getPassword() == null || tenantCreateDto.getPassword().trim().isEmpty()) {
+                    throw new IllegalArgumentException("Password is required when creating a new user for the tenant");
+                }
+                User newUser = new User();
+                newUser.setEmail(tenantCreateDto.getEmail());
+                newUser.setName(tenantCreateDto.getName());
+                newUser.setPhone(tenantCreateDto.getPhone());
+                newUser.setPassword(tenantCreateDto.getPassword());
+                newUser.setRole(User.UserRole.TENANT);
+                user = userService.registerUser(newUser);
+            }
+
+            Tenant tenant = tenantMapper.toEntity(tenantCreateDto);
+            logger.debug("Tenant after mapping: {}", tenant);
+
+            Property property = propertyService.getPropertyById(tenantCreateDto.getPropertyId());
+            if (property == null) {
+                throw new ResourceNotFoundException("Property not found with ID: " + tenantCreateDto.getPropertyId());
+            }
+            tenant.setProperty(property);
+            logger.debug("Tenant after setting property: {}", tenant);
+
+            Room room = roomService.getRoomById(tenantCreateDto.getRoomId());
+            if (room == null) {
+                throw new ResourceNotFoundException("Room not found with ID: " + tenantCreateDto.getRoomId());
+            }
+            room.setOccupied(true);  // Set to true
+            roomService.updateRoom(room);  // Update existing room instead of adding
+            tenant.setRoom(room);
+            logger.debug("Tenant after setting room: {}", tenant);
+
+            tenant.setUser(user);
+            logger.debug("Tenant before save: {}", tenant);
+
+            if (tenant.getBalance() == null) {
+                tenant.setBalance(0.0);
+                logger.warn("Balance was null, set to 0.0");
+            }
+            if (tenant.getProperty() == null || tenant.getRoom() == null || tenant.getUser() == null) {
+                throw new IllegalStateException("Tenant has null required fields: property=" + tenant.getProperty() + ", room=" + tenant.getRoom() + ", user=" + tenant.getUser());
+            }
+
+            Tenant createdTenant = tenantService.save(tenant);
+            TenantDto responseDto = tenantMapper.toDto(createdTenant);
+
+            logger.info("Tenant created successfully: id={}", createdTenant.getId());
+            return ResponseEntity.status(HttpStatus.CREATED).body(responseDto);
+        } catch (Exception e) {
+            logger.error("Unexpected error creating tenant: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Tenant creation failed", "An unexpected error occurred"));
+        }
+    }
+
+    /**
+     * Retrieves a tenant by their ID. Open to authenticated users with appropriate permissions.
+     *
+     * @param id The ID of the tenant to retrieve.
+     * @return ResponseEntity with the TenantDto or an error response.
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<?> getTenant(@PathVariable Long id) {
+        logger.info("Retrieving tenant with ID: {}", id);
+        try {
+            Tenant tenant = tenantService.getTenantById(id);
+            if (tenant == null) {
+                throw new ResourceNotFoundException("Tenant not found with ID: " + id);
+            }
+            return ResponseEntity.ok(tenantMapper.toDto(tenant));
+        } catch (ResourceNotFoundException e) {
+            logger.warn("Tenant not found: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorResponseDto("Tenant not found", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error retrieving tenant: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Tenant retrieval failed", "An unexpected error occurred"));
+        }
+    }
+
+    /**
+     * Retrieves the profile of the currently authenticated tenant. Requires TENANT role.
+     *
+     * @return ResponseEntity with the TenantDto or an error response.
      */
     @GetMapping("/profile")
     @PreAuthorize("hasRole('TENANT')")
     public ResponseEntity<?> getProfile() {
-        logger.info("Fetching profile for authenticated tenant");
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        Tenant tenant = tenantService.findByEmail(email);
-        if (tenant == null) {
-            logger.warn("Tenant not found for email: {}", email);
+        logger.info("Retrieving profile for current tenant");
+        try {
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            Tenant tenant = tenantService.findByEmail(email);
+            if (tenant == null) {
+                throw new ResourceNotFoundException("Tenant not found with email: " + email);
+            }
+            return ResponseEntity.ok(tenantMapper.toDto(tenant));
+        } catch (ResourceNotFoundException e) {
+            logger.warn("Tenant profile not found: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Tenant not found"));
+                    .body(new ErrorResponseDto("Tenant profile not found", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error retrieving tenant profile: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Profile retrieval failed", "An unexpected error occurred"));
         }
-        logger.debug("Profile retrieved for tenant: id={}", tenant.getId());
-        return ResponseEntity.ok(tenant);
     }
 
     /**
-     * Updates the profile of the currently authenticated tenant.
+     * Updates the profile of the currently authenticated tenant. Requires TENANT role.
      *
-     * @param updatedTenant The updated tenant details.
-     * @return ResponseEntity containing the updated Tenant object with HTTP 200 (OK) status, or 404/403 if unauthorized.
+     * @param tenantDto The DTO containing updated tenant data.
+     * @return ResponseEntity with the updated TenantDto or an error response.
      */
     @PutMapping("/profile")
     @PreAuthorize("hasRole('TENANT')")
-    public ResponseEntity<?> updateProfile(@Valid @RequestBody Tenant updatedTenant) {
-        logger.info("Updating profile for tenant: id={}", updatedTenant.getId());
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        Tenant existingTenant = tenantService.findByEmail(email);
+    public ResponseEntity<?> updateProfile(@Valid @RequestBody TenantDto tenantDto) {
+        logger.info("Updating profile for current tenant");
+        try {
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            Tenant existingTenant = tenantService.findByEmail(email);
+            if (existingTenant == null) {
+                throw new ResourceNotFoundException("Tenant not found with email: " + email);
+            }
 
-        if (existingTenant == null || !existingTenant.getId().equals(updatedTenant.getId())) {
-            logger.warn("Unauthorized update attempt or tenant not found: id={}, email={}", updatedTenant.getId(), email);
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Unauthorized or tenant not found"));
+            if (!existingTenant.getId().equals(tenantDto.getId())) {
+                logger.warn("Unauthorized attempt to update tenant ID: {} by email: {}", tenantDto.getId(), email);
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", "Unauthorized access"));
+            }
+
+            Tenant updatedTenant = tenantService.save(existingTenant);
+            return ResponseEntity.ok(tenantMapper.toDto(updatedTenant));
+
+        } catch (ResourceNotFoundException e) {
+            logger.warn("Tenant not found for update: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorResponseDto("Tenant not found", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error updating tenant profile: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Profile update failed", "An unexpected error occurred"));
         }
-
-        existingTenant.setName(updatedTenant.getName());
-        existingTenant.setEmail(updatedTenant.getEmail());
-        existingTenant.setPhone(updatedTenant.getPhone());
-        // Property, floor, and room changes are restricted to admins; tenants cannot modify these
-        Tenant savedTenant = tenantService.save(existingTenant);
-        logger.debug("Profile updated for tenant: id={}", savedTenant.getId());
-        return ResponseEntity.ok(savedTenant);
     }
 
     /**
-     * Retrieves the rent dues for the currently authenticated tenant.
+     * Retrieves rent dues for the currently authenticated tenant. Requires TENANT role.
      *
-     * @return ResponseEntity containing a List of Rent objects with HTTP 200 (OK) status, or 404 if tenant not found.
+     * @return ResponseEntity with a list of RentDtos or an error response.
      */
     @GetMapping("/rent-dues")
     @PreAuthorize("hasRole('TENANT')")
     public ResponseEntity<?> getRentDues() {
-        logger.info("Fetching rent dues for authenticated tenant");
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        Tenant tenant = tenantService.findByEmail(email);
+        logger.info("Retrieving rent dues for current tenant");
+        try {
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            Tenant tenant = tenantService.findByEmail(email);
+            if (tenant == null) {
+                throw new ResourceNotFoundException("Tenant not found with email: " + email);
+            }
 
-        if (tenant == null) {
-            logger.warn("Tenant not found for email: {}", email);
+            List<RentDto> rentDtos = rentService.getRentsByTenant(tenant.getId()).stream()
+                    .map(rentMapper::toDto)
+                    .collect(Collectors.toList());
+
+            return ResponseEntity.ok(rentDtos);
+
+        } catch (ResourceNotFoundException e) {
+            logger.warn("Tenant not found for rent dues: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Tenant not found"));
+                    .body(new ErrorResponseDto("Tenant not found", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error retrieving rent dues: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Rent dues retrieval failed", "An unexpected error occurred"));
         }
-
-        List<Rent> rentDues = rentService.getRentsByTenant(tenant.getId());
-        logger.debug("Retrieved {} rent dues for tenant: id={}", rentDues.size(), tenant.getId());
-        return ResponseEntity.ok(rentDues);
     }
 
     /**
-     * Sends a notification from the authenticated tenant to the admin.
+     * Sends a notification from the current tenant to the admin. Requires TENANT role.
      *
      * @param message The message content to send.
-     * @return ResponseEntity with a success message and HTTP 200 (OK) status, or 404 if tenant not found.
+     * @return ResponseEntity with a success message or an error response.
      */
     @PostMapping("/notify-admin")
     @PreAuthorize("hasRole('TENANT')")
-    public ResponseEntity<Map<String, String>> notifyAdmin(@RequestBody String message) {
-        logger.info("Sending notification to admin from authenticated tenant");
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        Tenant tenant = tenantService.findByEmail(email);
+    public ResponseEntity<?> notifyAdmin(@RequestBody String message) {
+        logger.info("Tenant sending notification to admin");
+        try {
+            if (message == null || message.trim().isEmpty()) {
+                logger.warn("Empty notification message received");
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Message cannot be empty"));
+            }
 
-        if (tenant == null) {
-            logger.warn("Tenant not found for email: {}", email);
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            Tenant tenant = tenantService.findByEmail(email);
+            if (tenant == null) {
+                throw new ResourceNotFoundException("Tenant not found with email: " + email);
+            }
+
+            notificationService.sendNotificationToAdmin(new Notification(message, tenant));
+            return ResponseEntity.ok(Map.of("message", "Notification sent successfully"));
+
+        } catch (ResourceNotFoundException e) {
+            logger.warn("Tenant not found for notification: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Tenant not found"));
+                    .body(new ErrorResponseDto("Tenant not found", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error sending notification: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Notification failed", "An unexpected error occurred"));
         }
-
-        if (message == null || message.trim().isEmpty()) {
-            logger.warn("Notification message is empty for tenant: id={}", tenant.getId());
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Message cannot be empty"));
-        }
-
-        Notification notification = new Notification(message, tenant);
-        notificationService.sendNotificationToAdmin(notification);
-        logger.debug("Notification sent to admin from tenant: id={}", tenant.getId());
-        return ResponseEntity.ok(Map.of("message", "Notification sent to admin"));
     }
 
     /**
-     * Creates a new tenant in the system (admin-only).
+     * Updates a tenant by ID. Requires ADMIN role.
      *
-     * @param tenant The tenant details to create.
-     * @return ResponseEntity containing the created Tenant object with HTTP 201 (Created) status.
+     * @param id The ID of the tenant to update.
+     * @param tenantDto The DTO containing updated tenant data.
+     * @return ResponseEntity with the updated TenantDto or an error response.
      */
-    @PostMapping("/tenants")
+    @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Tenant> createTenant(@Valid @RequestBody Tenant tenant) {
-        logger.info("Creating new tenant: email={}", tenant.getEmail());
-        Tenant createdTenant = tenantService.save(tenant);
-        logger.debug("Tenant created: id={}", createdTenant.getId());
-        return ResponseEntity.status(HttpStatus.CREATED).body(createdTenant);
-    }
+    public ResponseEntity<?> updateTenant(@PathVariable Long id, @Valid @RequestBody TenantDto tenantDto) {
+        logger.info("Updating tenant with ID: {}", id);
+        try {
+            Tenant existingTenant = tenantService.getTenantById(id);
+            if (existingTenant == null) {
+                throw new ResourceNotFoundException("Tenant not found with ID: " + id);
+            }
 
-    /**
-     * Updates an existing tenant's information (admin-only).
-     *
-     * @param id     The ID of the tenant to update.
-     * @param tenant The updated tenant details.
-     * @return ResponseEntity containing the updated Tenant object with HTTP 200 (OK) status, or 404 if not found.
-     */
-    @PutMapping("/tenants/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<?> updateTenant(@PathVariable Long id, @Valid @RequestBody Tenant tenant) {
-        logger.info("Updating tenant: id={}", id);
-        Tenant existingTenant = tenantService.getTenantById(id);
+            existingTenant.setFloor(tenantDto.getFloor());
 
-        if (existingTenant == null) {
-            logger.warn("Tenant not found: id={}", id);
+            Tenant updatedTenant = tenantService.save(existingTenant);
+            return ResponseEntity.ok(tenantMapper.toDto(updatedTenant));
+
+        } catch (ResourceNotFoundException e) {
+            logger.warn("Tenant not found for update: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Tenant not found"));
+                    .body(new ErrorResponseDto("Tenant not found", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error updating tenant: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Tenant update failed", "An unexpected error occurred"));
         }
-
-        existingTenant.setName(tenant.getName());
-        existingTenant.setEmail(tenant.getEmail());
-        existingTenant.setPhone(tenant.getPhone());
-        existingTenant.setProperty(tenant.getProperty());
-        existingTenant.setFloor(tenant.getFloor());
-        existingTenant.setRoom(tenant.getRoom());
-
-        Tenant updatedTenant = tenantService.save(existingTenant);
-        logger.debug("Tenant updated: id={}", updatedTenant.getId());
-        return ResponseEntity.ok(updatedTenant);
     }
 
     /**
-     * Deletes a tenant from the system (admin-only).
+     * Deletes a tenant by ID. Requires ADMIN role.
      *
      * @param id The ID of the tenant to delete.
-     * @return ResponseEntity with a success message and HTTP 200 (OK) status, or 404 if not found.
+     * @return ResponseEntity with a success message or an error response.
      */
-    @DeleteMapping("/tenants/{id}")
+    @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> deleteTenant(@PathVariable Long id) {
-        logger.info("Deleting tenant: id={}", id);
-        Tenant tenant = tenantService.getTenantById(id);
+    public ResponseEntity<?> deleteTenant(@PathVariable Long id) {
+        logger.info("Deleting tenant with ID: {}", id);
+        try {
+            Tenant tenant = tenantService.getTenantById(id);
+            if (tenant == null) {
+                throw new ResourceNotFoundException("Tenant not found with ID: " + id);
+            }
 
-        if (tenant == null) {
-            logger.warn("Tenant not found: id={}", id);
+            tenantService.delete(tenant.getId());
+            return ResponseEntity.ok(Map.of("message", "Tenant deleted successfully"));
+        } catch (ResourceNotFoundException e) {
+            logger.warn("Tenant not found for deletion: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Tenant not found"));
+                    .body(new ErrorResponseDto("Tenant not found", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error deleting tenant: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponseDto("Tenant deletion failed", "An unexpected error occurred"));
         }
-
-        tenantService.delete(id);
-        logger.debug("Tenant deleted: id={}", id);
-        return ResponseEntity.ok(Map.of("message", "Tenant deleted successfully"));
     }
 
     /**
-     * Retrieves all tenants in the system (admin-only).
+     * Retrieves all tenants in the system. Requires ADMIN role.
      *
-     * @return ResponseEntity containing a List of Tenant objects with HTTP 200 (OK) status.
+     * @return ResponseEntity with a list of TenantDtos.
      */
-    @GetMapping("/tenants")
+    @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<Tenant>> getAllTenants() {
-        logger.info("Fetching all tenants");
-        List<Tenant> tenants = tenantService.findAll();
-        logger.debug("Retrieved {} tenants", tenants.size());
-        return ResponseEntity.ok(tenants);
+    public ResponseEntity<List<TenantDto>> getAllTenants() {
+        logger.info("Retrieving all tenants");
+        try {
+            List<Tenant> tenants = tenantService.findAll();
+            List<TenantDto> tenantDtos = tenants.stream()
+                    .map(tenantMapper::toDto)
+                    .collect(Collectors.toList());
+            return ResponseEntity.ok(tenantDtos);
+        } catch (Exception e) {
+            logger.error("Error retrieving all tenants: {}", e.getMessage());
+            throw new RuntimeException("Failed to retrieve tenants", e); // Handled by global exception handler if present
+        }
+    }
+
+    /**
+     * Data transfer object for error responses.
+     */
+    public static class ErrorResponseDto {
+        private String error;
+        private String details;
+
+        /**
+         * Constructs an ErrorResponseDto with error and details.
+         *
+         * @param error The error message.
+         * @param details Additional details about the error.
+         */
+        public ErrorResponseDto(String error, String details) {
+            this.error = error;
+            this.details = details;
+        }
+
+        public String getError() { return error; }
+        public String getDetails() { return details; }
     }
 }

@@ -15,8 +15,8 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import payup.payup.exception.DuplicateEmailException;
 import payup.payup.exception.UserNotFoundException;
-import payup.payup.model.Tenant;
 import payup.payup.model.User;
 import payup.repository.UserRepository;
 
@@ -27,18 +27,27 @@ import java.util.Optional;
 public class UserService implements UserDetailsService {
     private static final Logger logger = LoggerFactory.getLogger(UserService.class);
 
-    @Autowired private UserRepository userRepository;
-    @Autowired private TenantService tenantService;
+    private final UserRepository userRepository;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+
+    @Autowired
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
 
     @Transactional
     @CacheEvict(value = "users", allEntries = true)
     public User registerUser(@NotNull User user) {
         validateUser(user);
         logger.info("Registering user: email={}", user.getEmail());
+
+        if (userRepository.existsByEmail(user.getEmail())) {
+            logger.warn("Duplicate email detected: {}", user.getEmail());
+            throw new DuplicateEmailException("Email is already registered: " + user.getEmail());
+        }
+
         user.setPassword(encoder.encode(user.getPassword()));
         User savedUser = userRepository.save(user);
-        handleRoleSpecificRegistration(savedUser);
         logger.debug("User registered: id={}, email={}", savedUser.getId(), savedUser.getEmail());
         return savedUser;
     }
@@ -47,7 +56,8 @@ public class UserService implements UserDetailsService {
     @CacheEvict(value = "users", key = "#user.id")
     public User updateUser(@NotNull User user) throws UserNotFoundException {
         logger.info("Updating user: id={}", user.getId());
-        User existingUser = findById(user.getId()).orElseThrow(() -> new UserNotFoundException("User not found with ID: " + user.getId()));
+        User existingUser = findById(user.getId())
+                .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + user.getId()));
         existingUser.setFirstName(user.getFirstName());
         existingUser.setLastName(user.getLastName());
         existingUser.setEmail(user.getEmail());
@@ -64,7 +74,9 @@ public class UserService implements UserDetailsService {
     @CacheEvict(value = "users", key = "#userId")
     public void deleteUser(Long userId) throws UserNotFoundException {
         logger.info("Deleting user: id={}", userId);
-        if (!userRepository.existsById(userId)) throw new UserNotFoundException("User not found with ID: " + userId);
+        if (!userRepository.existsById(userId)) {
+            throw new UserNotFoundException("User not found with ID: " + userId);
+        }
         userRepository.deleteById(userId);
         logger.debug("User deleted: id={}", userId);
     }
@@ -160,17 +172,6 @@ public class UserService implements UserDetailsService {
         if (user.getEmail() == null || user.getPassword() == null || user.getRole() == null) {
             logger.error("Invalid user data: {}", user);
             throw new IllegalArgumentException("Email, password, and role are required");
-        }
-    }
-
-    private void handleRoleSpecificRegistration(User user) {
-        if (user.getRole() == User.UserRole.TENANT) {
-            Tenant tenant = new Tenant();
-            tenant.setEmail(user.getEmail());
-            tenant.setName(user.getFirstName() + " " + user.getLastName());
-            tenant.setUser(user);
-            tenantService.save(tenant);
-            logger.debug("Tenant created for user: id={}", user.getId());
         }
     }
 }

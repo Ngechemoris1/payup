@@ -10,4 +10,7 @@ public class PaymentResponseDto {
     private String phoneNumber;
     private Long tenantId;
     private Long billId;
+
+    public PaymentResponseDto(String checkoutRequestId, String paymentInitiatedSuccessfully) {
+    }
 }

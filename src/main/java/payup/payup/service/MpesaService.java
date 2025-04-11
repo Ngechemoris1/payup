@@ -10,10 +10,11 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import payup.payup.config.MpesaConfig;
+import payup.payup.dto.PaymentResponseDto; // Added for response
 import payup.payup.model.Payment;
+import payup.payup.model.Tenant;
 import payup.repository.PaymentRepository;
 import payup.repository.TenantRepository;
-import payup.payup.model.Tenant;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -95,16 +96,17 @@ public class MpesaService {
     }
 
     @Transactional
-    public String initiatePayment(Long tenantId, Double amount, String phoneNumber) throws IOException {
+    public PaymentResponseDto initiatePayment(Long tenantId, Double amount, String phoneNumber, Long billId) throws IOException {
         validatePaymentRequest(tenantId, amount, phoneNumber);
-        Tenant tenant = tenantRepository.findById(tenantId).orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Tenant not found with ID: " + tenantId));
 
         String accessToken = getAccessToken();
         String timestamp = new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date());
         String password = generatePassword(timestamp);
         String idempotencyKey = UUID.randomUUID().toString();
 
-        Map<String, String> requestBody = buildStkPushPayload(amount, phoneNumber, timestamp, password, idempotencyKey, tenantId);
+        Map<String, String> requestBody = buildStkPushPayload(amount, phoneNumber, timestamp, password, idempotencyKey, tenantId, billId);
         String jsonPayload = objectMapper.writeValueAsString(requestBody);
         RequestBody body = RequestBody.create(jsonPayload, MediaType.parse("application/json"));
 
@@ -124,9 +126,9 @@ public class MpesaService {
             JsonNode responseJson = objectMapper.readTree(response.body().string());
             String checkoutRequestId = responseJson.get("CheckoutRequestID").asText();
 
-            savePayment(tenant, BigDecimal.valueOf(amount), checkoutRequestId, idempotencyKey);
+            savePayment(tenant, BigDecimal.valueOf(amount), checkoutRequestId, idempotencyKey, billId);
             logger.info("STK Push initiated: checkoutRequestId={}", checkoutRequestId);
-            return checkoutRequestId;
+            return new PaymentResponseDto(checkoutRequestId, "Payment initiated successfully");
         }
     }
 
@@ -164,24 +166,24 @@ public class MpesaService {
         }
     }
 
-    private Map<String, String> buildStkPushPayload(Double amount, String phoneNumber, String timestamp, String password, String idempotencyKey, Long tenantId) {
+    private Map<String, String> buildStkPushPayload(Double amount, String phoneNumber, String timestamp, String password, String idempotencyKey, Long tenantId, Long billId) {
         Map<String, String> payload = new HashMap<>();
         payload.put("BusinessShortCode", mpesaConfig.getShortcode());
         payload.put("Password", password);
         payload.put("Timestamp", timestamp);
         payload.put("TransactionType", "CustomerPayBillOnline");
-        payload.put("Amount", String.valueOf(amount));
+        payload.put("Amount", String.valueOf(amount.intValue())); // M-Pesa expects an integer amount
         payload.put("PartyA", phoneNumber);
         payload.put("PartyB", mpesaConfig.getShortcode());
         payload.put("PhoneNumber", phoneNumber);
         payload.put("CallBackURL", mpesaConfig.getCallbackUrl());
-        payload.put("AccountReference", "payup-" + tenantId);
-        payload.put("TransactionDesc", "Rent/Bill Payment");
+        payload.put("AccountReference", billId != null ? "Bill-" + billId : "payup-" + tenantId);
+        payload.put("TransactionDesc", billId != null ? "Bill Payment" : "Rent Payment");
         payload.put("IdempotencyKey", idempotencyKey);
         return payload;
     }
 
-    private void savePayment(Tenant tenant, BigDecimal amount, String checkoutRequestId, String idempotencyKey) {
+    private void savePayment(Tenant tenant, BigDecimal amount, String checkoutRequestId, String idempotencyKey, Long billId) {
         Payment payment = new Payment();
         payment.setTenant(tenant);
         payment.setAmount(amount);
@@ -190,6 +192,10 @@ public class MpesaService {
         payment.setStatus(Payment.Status.PENDING);
         payment.setPaymentDate(LocalDateTime.now());
         payment.setIdempotencyKey(idempotencyKey);
+        if (billId != null) {
+            // Assuming a Bill entity and repository exist; you'd need to fetch and set it
+            // payment.setBill(billRepository.findById(billId).orElse(null));
+        }
         paymentRepository.save(payment);
     }
 
@@ -212,7 +218,7 @@ public class MpesaService {
                         .findFirst().orElse("N/A");
                 payment.setStatus(Payment.Status.PAID);
                 payment.setMpesaReceiptNumber(mpesaReceipt);
-                payment.setPaymentDate(LocalDateTime.now());
+                payment.setPaidAt(LocalDateTime.now());
                 break;
             default:
                 payment.setStatus(Payment.Status.FAILED);
