@@ -11,21 +11,18 @@ public class LandlordBillMapper {
         if (bill == null) {
             return null;
         }
-
         LandlordBillDto dto = new LandlordBillDto();
         dto.setId(bill.getId());
         dto.setType(bill.getType());
         dto.setAmount(bill.getAmount());
         dto.setDueDate(bill.getDueDate());
         dto.setOverdue(bill.getDueDate().isBefore(java.time.LocalDate.now()));
-
         if (bill.getLandlord() != null) {
             dto.setLandlordId(bill.getLandlord().getId());
         }
         if (bill.getProperty() != null) {
             dto.setPropertyId(bill.getProperty().getId());
         }
-
         return dto;
     }
 
@@ -33,13 +30,13 @@ public class LandlordBillMapper {
         if (dto == null) {
             return null;
         }
-
         LandlordBill bill = new LandlordBill();
         bill.setId(dto.getId());
         bill.setType(dto.getType());
         bill.setAmount(dto.getAmount());
         bill.setDueDate(dto.getDueDate());
-        // Landlord and property should be set separately via service
+        bill.setLandlordId(dto.getLandlordId());
+        bill.setPropertyId(dto.getPropertyId());
         return bill;
     }
 }
