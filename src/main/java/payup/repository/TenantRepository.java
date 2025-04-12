@@ -3,6 +3,8 @@ package payup.repository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import payup.payup.model.Tenant;
 
@@ -22,7 +24,8 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
      * @param email The email address to search for.
      * @return An Optional containing the Tenant if found, or empty if not.
      */
-    Optional<Tenant> findByEmail(String email);
+    @Query("SELECT t FROM Tenant t JOIN t.user u WHERE u.email = :email")
+    Optional<Tenant> findByEmail(@Param("email") String email);
 
     /**
      * Retrieves all tenants in a specific property.
@@ -58,5 +61,6 @@ public interface TenantRepository extends JpaRepository<Tenant, Long> {
      * @param pageable    Pagination and sorting information.
      * @return A Page of Tenant entities matching the search criteria.
      */
-    Page<Tenant> findByNameContainingOrEmailContainingIgnoreCase(String searchTerm, String searchTerm2, Pageable pageable);
+    @Query("SELECT t FROM Tenant t JOIN t.user u WHERE LOWER(u.firstName) LIKE LOWER(CONCAT('%', :searchTerm, '%')) OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', :searchTerm, '%')) OR LOWER(u.email) LIKE LOWER(CONCAT('%', :searchTerm2, '%'))")
+    Page<Tenant> findByNameContainingOrEmailContainingIgnoreCase(@Param("searchTerm") String searchTerm, @Param("searchTerm2") String searchTerm2, Pageable pageable);
 }

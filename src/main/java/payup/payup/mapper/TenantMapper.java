@@ -10,8 +10,12 @@ import payup.payup.model.Tenant;
 import java.util.Collections;
 import java.util.stream.Collectors;
 
+/**
+ * Mapper for converting between Tenant entity and Tenant DTOs.
+ */
 @Component
 public class TenantMapper {
+
     private static final Logger logger = LoggerFactory.getLogger(TenantMapper.class);
 
     private final PropertyMapper propertyMapper;
@@ -56,11 +60,8 @@ public class TenantMapper {
         }).collect(Collectors.toList())
                 : Collections.emptyList());
         dto.setBills(tenant.getBills() != null
-                ? tenant.getBills().stream().map(bill -> {
-            BillDto billDto = billMapper.toDto(bill);
-            billDto.setTenant(dto);
-            return billDto;
-        }).collect(Collectors.toList())
+                ? tenant.getBills().stream().map(billMapper::toDto)
+                .collect(Collectors.toList())
                 : Collections.emptyList());
         dto.setCreatedAt(tenant.getCreatedAt());
         dto.setUpdatedAt(tenant.getUpdatedAt());

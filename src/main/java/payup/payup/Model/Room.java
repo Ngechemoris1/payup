@@ -2,7 +2,6 @@ package payup.payup.model;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import java.util.List;
 
 @Data
 @Entity
@@ -28,9 +27,6 @@ public class Room {
     @ManyToOne
     @JoinColumn(name = "property_id", nullable = false)
     private Property property;
-
-    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Tenant> tenants;
 
     public enum RoomStatus {
         AVAILABLE, OCCUPIED, MAINTENANCE

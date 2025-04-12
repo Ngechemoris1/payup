@@ -1,67 +1,54 @@
 package payup.payup.model;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Positive;
-import lombok.Data;
-
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Represents a bill in the property management system, associated with a tenant.
- * Tracks bill details such as type, amount, due date, and payment status.
+ * Entity representing a bill in the system.
  */
-@Data
 @Entity
-@Table(name = "bills")
+@Table(name = "bill")
 public class Bill {
+
+    public enum BillStatus { PENDING, PAID, OVERDUE }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private String billType; // e.g., RENT, SECURITY, GARBAGE, WATER, ELECTRICITY
+    private String billType;
 
-    @Column(nullable = false)
-    @Positive(message = "Amount must be positive")
     private double amount;
 
-    @Column(nullable = false)
     private LocalDateTime dueDate;
 
-    @Column(nullable = false)
     private boolean isPaid;
 
-    @ManyToOne
-    @JoinColumn(name = "tenant_id", nullable = false)
-    private Tenant tenant;
-
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private BillStatus status;
 
-    public Bill() {
+    @ManyToOne
+    @JoinColumn(name = "tenant_id")
+    @JsonBackReference(value = "user-bills")
+    private User tenant;
 
-    }
-
-    /**
-     * Enum representing the possible statuses of a bill.
-     */
-    public enum BillStatus {
-        PENDING, PAID, OVERDUE
-    }
-
+    // Getters and setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getBillType() { return billType; }
+    public void setBillType(String billType) { this.billType = billType; }
+    public double getAmount() { return amount; }
+    public void setAmount(double amount) { this.amount = amount; }
+    public LocalDateTime getDueDate() { return dueDate; }
+    public void setDueDate(LocalDateTime dueDate) { this.dueDate = dueDate; }
+    public boolean isPaid() { return isPaid; }
+    public void setPaid(boolean paid) { isPaid = paid; }
+    public BillStatus getStatus() { return status; }
+    public void setStatus(BillStatus status) { this.status = status; }
+    public User getTenant() { return tenant; }
+    public void setTenant(User tenant) { this.tenant = tenant; }
     public boolean isOverdue() {
-        return this.getDueDate() != null && this.getDueDate().isBefore(java.time.LocalDate.now().atStartOfDay());
-    }
-
-    public Bill(String billType, double amount, LocalDateTime dueDate, Tenant tenant) {
-        this.billType = billType;
-        this.amount = amount;
-        this.dueDate = dueDate;
-        this.tenant = tenant;
-        this.isPaid = false;
-        this.status = BillStatus.PENDING;
+        return !isPaid && dueDate != null && dueDate.isBefore(LocalDateTime.now());
     }
 }

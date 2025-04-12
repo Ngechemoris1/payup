@@ -83,8 +83,6 @@ public class TenantController {
      * @param tenantCreateDto The DTO containing tenant creation data.
      * @return ResponseEntity with the created TenantDto or an error response.
      */
-
-
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> createTenant(@Valid @RequestBody TenantCreateDto tenantCreateDto) {
@@ -122,10 +120,10 @@ public class TenantController {
             if (room == null) {
                 throw new ResourceNotFoundException("Room not found with ID: " + tenantCreateDto.getRoomId());
             }
-            room.setOccupied(true);  // Set to true
-            roomService.updateRoom(room);  // Update existing room instead of adding
-            tenant.setRoom(room);
-            logger.debug("Tenant after setting room: {}", tenant);
+            room.setOccupied(true);
+            roomService.updateRoom(room);
+            tenant.setRoomId(room.getId().intValue()); // Set roomId instead of Room
+            logger.debug("Tenant after setting roomId: {}", tenant);
 
             tenant.setUser(user);
             logger.debug("Tenant before save: {}", tenant);
@@ -134,8 +132,8 @@ public class TenantController {
                 tenant.setBalance(0.0);
                 logger.warn("Balance was null, set to 0.0");
             }
-            if (tenant.getProperty() == null || tenant.getRoom() == null || tenant.getUser() == null) {
-                throw new IllegalStateException("Tenant has null required fields: property=" + tenant.getProperty() + ", room=" + tenant.getRoom() + ", user=" + tenant.getUser());
+            if (tenant.getProperty() == null || tenant.getUser() == null) {
+                throw new IllegalStateException("Tenant has null required fields: property=" + tenant.getProperty() + ", user=" + tenant.getUser());
             }
 
             Tenant createdTenant = tenantService.save(tenant);
