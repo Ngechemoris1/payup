@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import payup.payup.dto.*;
 import payup.payup.model.Tenant;
+import payup.payup.service.RoomService;
 
 import java.util.Collections;
 import java.util.stream.Collectors;
@@ -23,18 +24,21 @@ public class TenantMapper {
     private final UserMapper userMapper;
     private final RentMapper rentMapper;
     private final BillMapper billMapper;
+    private final RoomService roomService;
 
     @Autowired
     public TenantMapper(PropertyMapper propertyMapper,
                         RoomMapper roomMapper,
                         UserMapper userMapper,
                         RentMapper rentMapper,
-                        BillMapper billMapper) {
+                        BillMapper billMapper,
+                        RoomService roomService) {
         this.propertyMapper = propertyMapper;
         this.roomMapper = roomMapper;
         this.userMapper = userMapper;
         this.rentMapper = rentMapper;
         this.billMapper = billMapper;
+        this.roomService = roomService;
     }
 
     public TenantDto toDto(Tenant tenant) {
@@ -46,9 +50,17 @@ public class TenantMapper {
         dto.setBalance(tenant.getBalance());
         dto.setFloor(tenant.getFloor());
         dto.setProperty(propertyMapper.toDto(tenant.getProperty()));
-        RoomDto roomDto = roomMapper.toDto(tenant.getRoom());
-        if (roomDto != null) {
-            roomDto.setTenant(dto);
+        // Fetch Room by roomId instead of using tenant.getRoom()
+        RoomDto roomDto = null;
+        if (tenant.getRoomId() != null) {
+            try {
+                roomDto = roomMapper.toDto(roomService.getRoomById(tenant.getRoomId().longValue()));
+                if (roomDto != null) {
+                    roomDto.setTenant(dto);
+                }
+            } catch (IllegalArgumentException e) {
+                logger.warn("Room not found for tenant ID {} with roomId: {}", tenant.getId(), tenant.getRoomId());
+            }
         }
         dto.setRoom(roomDto);
         dto.setUser(userMapper.toDto(tenant.getUser()));
