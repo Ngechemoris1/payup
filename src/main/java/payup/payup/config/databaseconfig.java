@@ -15,7 +15,7 @@ import java.util.Properties;
 
 @Configuration
 @EnableJpaRepositories(basePackages = "payup.repository")
-public class databaseconfig {
+public class DatabaseConfig {
 
     /**
      * Configures a data source for development environment using H2.

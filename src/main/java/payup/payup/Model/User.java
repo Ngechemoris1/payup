@@ -10,6 +10,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.util.ArrayList;
 import java.util.List;
+import payup.payup.model.Bill;
+import payup.payup.model.Property;
+import payup.payup.model.User.UserRole;
+
+
+
 
 /**
  * Entity representing a user in the system (e.g., ADMIN, LANDLORD, TENANT).

@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-public class swaggerconfig {
+public class SwaggerConfig {
 
     /**
      * Configures Swagger for API documentation.

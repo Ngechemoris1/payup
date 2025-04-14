@@ -70,6 +70,10 @@ dependencies {
     implementation 'com.twilio.sdk:twilio:8.31.1'
 
     implementation 'jakarta.validation:jakarta.validation-api:3.0.2'
+
+    implementation 'io.github.cdimascio:dotenv-java:3.0.0'
+
+
    
 }
 
@@ -81,3 +85,4 @@ tasks.named('test') {
 tasks.withType(JavaCompile) {
     options.compilerArgs += ['-parameters']
 }
+
