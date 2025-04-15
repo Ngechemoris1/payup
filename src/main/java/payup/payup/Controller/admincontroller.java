@@ -215,43 +215,4 @@ public class AdminController {
             return ResponseEntity.notFound().build();
         }
     }
-
-    /**
-     * Sends a notification to a specific tenant.
-     *
-     * @param tenantId ID of the tenant to notify
-     * @param message Notification message content
-     * @return ResponseEntity with success message and notification ID or 404 if tenant not found
-     */
-    @PostMapping("/notify/tenant/{tenantId}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> notifyTenant(@PathVariable Long tenantId, @RequestBody String message) {
-        logger.info("Sending notification to tenantId={}", tenantId);
-        Tenant tenant = tenantService.getTenantById(tenantId);
-        if (tenant == null) {
-            logger.warn("Tenant not found: id={}", tenantId);
-            return ResponseEntity.notFound().build();
-        }
-        User adminUser = userService.getCurrentAdminUser();
-        Notification notification = notificationService.sendNotificationToTenant(tenant, message, adminUser);
-        return ResponseEntity.ok(Map.of(
-                "message", "Notification sent to tenant: " + tenant.getEmail(),
-                "notificationId", notification.getId().toString()
-        ));
-    }
-
-    /**
-     * Sends a notification to all tenants.
-     *
-     * @param message Notification message content
-     * @return ResponseEntity with success message
-     */
-    @PostMapping("/notify/all-tenants")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> notifyAllTenants(@RequestBody String message) {
-        logger.info("Sending notification to all tenants");
-        User adminUser = userService.getCurrentAdminUser();
-        notificationService.sendNotificationToAllTenants(message, adminUser);
-        return ResponseEntity.ok(Map.of("message", "Notification sent to all tenants"));
-    }
 }

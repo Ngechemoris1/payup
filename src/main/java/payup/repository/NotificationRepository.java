@@ -18,6 +18,10 @@ import java.util.List;
 @Repository
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
+    Page<Notification> findByTenantId(Long tenantId, Pageable pageable);
+    List<Notification> findByTenantIdAndStatus(Long tenantId, Notification.NotificationStatus status);
+    Page<Notification> findByRecipientUserId(Long userId, Pageable pageable);
+
     /**
      * Retrieves all notifications sent to a specific tenant.
      *

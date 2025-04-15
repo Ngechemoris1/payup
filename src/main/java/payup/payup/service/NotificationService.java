@@ -15,13 +15,8 @@ import payup.repository.TenantRepository;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-/**
- * Service for handling notifications in the PayUp system, supporting email and SMS channels.
- * Notifications can be sent from tenants to admins or from landlords to tenants.
- */
 @Service
 public class NotificationService {
-
     private static final Logger logger = LoggerFactory.getLogger(NotificationService.class);
 
     @Autowired
@@ -37,21 +32,13 @@ public class NotificationService {
     private EmailService emailService;
 
     @Autowired
-    private SmsService smsService; // New SMS service injection
+    private SmsService smsService;
 
-    /**
-     * Sends a notification from a tenant to an admin via email.
-     *
-     * @param notification The notification object containing the message and tenant info.
-     * @return The saved notification object.
-     * @throws IllegalArgumentException if the notification or its fields are invalid.
-     * @throws RuntimeException         if no admin is found or email sending fails.
-     */
     @Transactional
     public Notification sendNotificationToAdmin(Notification notification) {
-        if (notification == null || notification.getMessage() == null || notification.getTenant() == null) {
+        if (notification == null || notification.getMessage() == null) {
             logger.error("Invalid notification: {}", notification);
-            throw new IllegalArgumentException("Notification, message, and tenant must not be null");
+            throw new IllegalArgumentException("Notification and message must not be null");
         }
 
         User admin = userService.findAdmin()
@@ -60,11 +47,15 @@ public class NotificationService {
                     return new RuntimeException("No admin user found");
                 });
 
-        logger.info("Sending notification from tenantId={} to admin: {} - Message: {}",
-                notification.getTenant().getId(), admin.getEmail(), notification.getMessage());
+        notification.setRecipientUser(admin);
+        if (notification.getSenderUser() == null && notification.getTenant() != null) {
+            notification.setSenderUser(notification.getTenant().getUser());
+        }
+
+        logger.info("Sending notification to admin: {} - Message: {}", admin.getEmail(), notification.getMessage());
 
         try {
-            emailService.sendEmail(admin.getEmail(), "Tenant Notification", notification.getMessage());
+            emailService.sendEmail(admin.getEmail(), "Notification", notification.getMessage());
         } catch (Exception e) {
             logger.error("Failed to send email to admin: {}", e.getMessage(), e);
             throw new RuntimeException("Email sending failed", e);
@@ -73,31 +64,23 @@ public class NotificationService {
         return notificationRepository.save(notification);
     }
 
-    /**
-     * Sends a notification from a landlord to a specific tenant via email and SMS.
-     *
-     * @param tenant  The tenant to notify.
-     * @param message The message content.
-     * @param sender  The landlord sending the notification.
-     * @return The saved notification object.
-     * @throws IllegalArgumentException if tenant, message, or sender is invalid.
-     * @throws RuntimeException         if email or SMS sending fails.
-     */
     @Transactional
     public Notification sendNotificationToTenant(Tenant tenant, String message, User sender) {
-        if (tenant == null || message == null || message.trim().isEmpty() || sender == null || sender.getRole() != User.UserRole.LANDLORD) {
+        if (tenant == null || message == null || message.trim().isEmpty() || sender == null) {
             logger.error("Invalid input: tenant={}, message={}, sender={}", tenant, message, sender);
-            throw new IllegalArgumentException("Tenant, message, and valid landlord sender must not be null or empty");
+            throw new IllegalArgumentException("Tenant, message, and sender must not be null or empty");
         }
 
         Notification notification = new Notification(message, tenant);
-        notification.setType(Notification.NotificationType.GENERAL); // Default type, can be overridden
+        notification.setSenderUser(sender);
+        notification.setRecipientUser(tenant.getUser());
+        notification.setType(Notification.NotificationType.GENERAL);
 
-        logger.info("Sending notification from landlordId={} to tenantId={}: {}", sender.getId(), tenant.getId(), message);
+        logger.info("Sending notification from userId={} to tenantId={}: {}", sender.getId(), tenant.getId(), message);
 
         try {
-            emailService.sendEmail(tenant.getEmail(), "Landlord Notification", message);
-            smsService.sendSms(tenant.getPhone(), message); // Send SMS to tenant's registered phone
+            emailService.sendEmail(tenant.getEmail(), "Notification", message);
+            smsService.sendSms(tenant.getPhone(), message);
         } catch (Exception e) {
             logger.error("Failed to send notification to tenantId={}: {}", tenant.getId(), e.getMessage(), e);
             throw new RuntimeException("Notification sending failed", e);
@@ -106,35 +89,56 @@ public class NotificationService {
         return notificationRepository.save(notification);
     }
 
-    /**
-     * Asynchronously sends a notification from a landlord to all tenants via email and SMS.
-     *
-     * @param message The message to broadcast.
-     * @param sender  The landlord sending the notification.
-     * @return A CompletableFuture indicating completion.
-     * @throws IllegalArgumentException if message or sender is invalid.
-     */
     @Async
     @Transactional
     public CompletableFuture<Void> sendNotificationToAllTenants(String message, User sender) {
-        if (message == null || message.trim().isEmpty() || sender == null || sender.getRole() != User.UserRole.LANDLORD) {
+        if (message == null || message.trim().isEmpty() || sender == null) {
             logger.error("Invalid input: message={}, sender={}", message, sender);
-            throw new IllegalArgumentException("Message and valid landlord sender must not be null or empty");
+            throw new IllegalArgumentException("Message and sender must not be null or empty");
         }
 
         List<Tenant> allTenants = tenantRepository.findAll();
-        logger.info("Broadcasting notification from landlordId={} to {} tenants: {}", sender.getId(), allTenants.size(), message);
+        logger.info("Broadcasting notification from userId={} to {} tenants: {}", sender.getId(), allTenants.size(), message);
 
         for (Tenant tenant : allTenants) {
             try {
                 sendNotificationToTenant(tenant, message, sender);
             } catch (Exception e) {
                 logger.warn("Failed to notify tenantId={}: {}", tenant.getId(), e.getMessage());
-                // Continue processing despite individual failures
             }
         }
 
         logger.info("Broadcast notification completed: {}", message);
         return CompletableFuture.completedFuture(null);
+    }
+
+    @Transactional
+    public Notification sendNotificationToLandlord(User landlord, String message, User sender) {
+        if (landlord == null || message == null || message.trim().isEmpty() || sender == null) {
+            logger.error("Invalid input: landlord={}, message={}, sender={}", landlord, message, sender);
+            throw new IllegalArgumentException("Landlord, message, and sender must not be null or empty");
+        }
+        if (landlord.getRole() != User.UserRole.LANDLORD) {
+            logger.error("Recipient is not a landlord: role={}", landlord.getRole());
+            throw new IllegalArgumentException("Recipient must be a landlord");
+        }
+        if (sender.getRole() != User.UserRole.ADMIN) {
+            logger.error("Sender is not an admin: role={}", sender.getRole());
+            throw new IllegalArgumentException("Sender must be an admin");
+        }
+
+        Notification notification = new Notification(message, landlord, sender);
+        notification.setType(Notification.NotificationType.GENERAL);
+
+        logger.info("Sending notification from adminId={} to landlordId={}: {}", sender.getId(), landlord.getId(), message);
+
+        try {
+            emailService.sendEmail(landlord.getEmail(), "Admin Notification", message);
+        } catch (Exception e) {
+            logger.error("Failed to send notification to landlordId={}: {}", landlord.getId(), e.getMessage(), e);
+            throw new RuntimeException("Email sending failed", e);
+        }
+
+        return notificationRepository.save(notification);
     }
 }

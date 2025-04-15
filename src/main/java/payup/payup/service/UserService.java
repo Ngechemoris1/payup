@@ -168,6 +168,24 @@ public class UserService implements UserDetailsService {
         return admin;
     }
 
+    @Transactional(readOnly = true)
+    public User getAuthenticatedUser() {
+        logger.info("Retrieving authenticated user");
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            logger.error("No authenticated user found");
+            throw new RuntimeException("No authenticated user");
+        }
+        String email = auth.getName();
+        User user = findByEmail(email)
+                .orElseThrow(() -> {
+                    logger.error("User not found for email: {}", email);
+                    return new RuntimeException("User not found");
+                });
+        logger.debug("Authenticated user retrieved: id={}, role={}", user.getId(), user.getRole());
+        return user;
+    }
+
     private void validateUser(User user) {
         if (user.getEmail() == null || user.getPassword() == null || user.getRole() == null) {
             logger.error("Invalid user data: {}", user);
