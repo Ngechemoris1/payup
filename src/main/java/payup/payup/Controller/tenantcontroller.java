@@ -164,7 +164,8 @@ public class TenantController {
             }
             return ResponseEntity.ok(tenantMapper.toDto(tenant));
         } catch (ResourceNotFoundException e) {
-            logger.warn("Tenant not found: {}", e.getMessage());
+            logger.warn("Tenant no" +
+                    "t found: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(new ErrorResponseDto("Tenant not found", e.getMessage()));
         } catch (Exception e) {

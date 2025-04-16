@@ -32,6 +32,7 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
      */
     List<Bill> findByTenant(Tenant tenant);
 
+
     /**
      * Retrieves all bills for a specific tenant with a given status.
      *
